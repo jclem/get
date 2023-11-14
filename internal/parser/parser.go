@@ -88,7 +88,7 @@ var inputParser = parsec.OrdChoice(nil, queryParamParser, headerParser, keyValue
 
 var headerParser = parsec.And(toHeader,
 	parsec.Many(toString, headerChar),
-	eq,
+	col,
 	parsec.Many(toString, anyChar),
 )
 
@@ -137,7 +137,7 @@ func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 
 var keyValueParser = parsec.And(toKeyValue,
 	parsec.Many(toString, headerChar),
-	col,
+	eq,
 	parsec.Many(toString, anyChar),
 )
 
