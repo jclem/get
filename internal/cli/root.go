@@ -39,7 +39,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not create request: %w", err)
 		}
 
-		noSession, err := cmd.Flags().GetBool("no-session")
+		noSession, err := cmd.Flags().GetBool(flagNoSession)
 		if err != nil {
 			return fmt.Errorf("could not get no-session flag: %w", err)
 		}
@@ -79,7 +79,7 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		verbose, err := cmd.Flags().GetBool("verbose")
+		verbose, err := cmd.Flags().GetBool(flagVerbose)
 		if err != nil {
 			return fmt.Errorf("could not get verbose flag: %w", err)
 		}
@@ -116,7 +116,7 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 
-		noHeaders, err := cmd.Flags().GetBool("no-headers")
+		noHeaders, err := cmd.Flags().GetBool(flagNoHeaders)
 		if err != nil {
 			return fmt.Errorf("could not get no-headers flag: %w", err)
 		}
@@ -141,7 +141,7 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		noBody, err := cmd.Flags().GetBool("no-body")
+		noBody, err := cmd.Flags().GetBool(flagNoBody)
 		if err != nil {
 			return fmt.Errorf("could not get no-body flag: %w", err)
 		}
@@ -156,13 +156,19 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+const flagNoBody = "no-body"
+const flagNoHeaders = "no-headers"
+const flagNoSession = "no-session"
+const flagMethod = "method"
+const flagVerbose = "verbose"
+
 // Execute runs the root command.
 func Execute(ctx context.Context) error {
-	rootCmd.Flags().BoolP("no-body", "B", false, "Do not print the response body")
-	rootCmd.Flags().BoolP("no-headers", "H", false, "Do not print the response headers")
-	rootCmd.Flags().BoolP("no-session", "S", false, "Do not use a stored session if one exists for this host")
-	rootCmd.Flags().StringP("method", "X", http.MethodGet, "HTTP method to use")
-	rootCmd.Flags().BoolP("verbose", "v", false, "Print verbose output")
+	rootCmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
+	rootCmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
+	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
+	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
+	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)
@@ -184,7 +190,7 @@ func newUnknownMethodError(method string) error {
 }
 
 func getMethod(cmd *cobra.Command) (string, error) {
-	method, err := cmd.Flags().GetString("method")
+	method, err := cmd.Flags().GetString(flagMethod)
 	if err != nil {
 		return "", fmt.Errorf("could not get method flag: %w", err)
 	}
