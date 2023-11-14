@@ -83,7 +83,7 @@ var rootCmd = &cobra.Command{
 			if ssn != nil {
 				for k, v := range ssn.Headers {
 					for _, v := range v {
-						req.Header.Add(k, v)
+						req.Header.Set(k, v)
 					}
 				}
 			}
