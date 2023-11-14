@@ -29,7 +29,17 @@ func (w *Writer) Write(p []byte) (int, error) {
 
 // PrintRequest prints information about an HTTP request.
 func (w *Writer) PrintRequest(req *http.Request) error {
-	if err := w.PrintfGreen("%s %s %s\n", req.Method, req.URL.Path, req.Proto); err != nil {
+	path := req.URL.Path
+
+	if path == "" {
+		path = "/"
+	}
+
+	if req.URL.RawQuery != "" {
+		path += "?" + req.URL.RawQuery
+	}
+
+	if err := w.PrintfGreen("%s %s %s\n", req.Method, path, req.Proto); err != nil {
 		return err
 	}
 
@@ -127,9 +137,9 @@ func (w *Writer) PrintfGreen(format string, a ...any) error {
 	return w.printfColor(color.New(color.FgGreen), format, a...)
 }
 
-// PrintfRed writes a formatted string to the underlying io.Writer in red.
-func (w *Writer) PrintfRed(format string, a ...any) error {
-	return w.printfColor(color.New(color.FgRed), format, a...)
+// PrintfCyan writes a formatted string to the underlying io.Writer in red.
+func (w *Writer) PrintfCyan(format string, a ...any) error {
+	return w.printfColor(color.New(color.FgCyan), format, a...)
 }
 
 func (w *Writer) printfColor(c *color.Color, format string, a ...any) error {
@@ -142,7 +152,7 @@ func (w *Writer) printfColor(c *color.Color, format string, a ...any) error {
 
 func (w *Writer) printHeaders(h http.Header) error {
 	for k, v := range h {
-		if err := w.PrintfRed("%s: ", k); err != nil {
+		if err := w.PrintfCyan("%s: ", k); err != nil {
 			return err
 		}
 

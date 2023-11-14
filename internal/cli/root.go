@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 
+	"github.com/jclem/get/internal/parser"
 	"github.com/jclem/get/internal/session"
 	"github.com/jclem/get/internal/writer"
 	"github.com/spf13/cobra"
 )
-
-var isHeaderOpt = regexp.MustCompile(`^[a-zA-Z0-9-]+:.+$`)
 
 const flagNoBody = "no-body"
 const flagNoHeaders = "no-headers"
@@ -21,6 +19,7 @@ const flagNoSession = "no-session"
 const flagMethod = "method"
 const flagVerbose = "verbose"
 const flagData = "data"
+const flagHTTP = "http"
 
 var rootCmd = &cobra.Command{
 	Use:   "get <url>",
@@ -29,9 +28,23 @@ var rootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		out := writer.NewWriter(cmd.OutOrStdout())
 
-		url := args[0]
-		if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
-			url = "https://" + url
+		reqURL := args[0]
+		if !strings.HasPrefix(reqURL, "https://") && !strings.HasPrefix(reqURL, "http://") {
+			useHTTP, err := cmd.Flags().GetBool(flagHTTP)
+			if err != nil {
+				return fmt.Errorf("could not get http flag: %w", err)
+			}
+
+			if useHTTP {
+				reqURL = "http://" + reqURL
+			} else {
+				reqURL = "https://" + reqURL
+			}
+		}
+
+		input, err := parser.ParseInput(args[1:])
+		if err != nil {
+			return fmt.Errorf("could not parse input: %w", err)
 		}
 
 		method, err := getMethod(cmd)
@@ -44,7 +57,7 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get data flag: %w", err)
 		}
 
-		req, err := http.NewRequestWithContext(cmd.Context(), method, url, strings.NewReader(data))
+		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL, strings.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("could not create request: %w", err)
 		}
@@ -54,20 +67,27 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get no-session flag: %w", err)
 		}
 
-		if len(args[1:]) > 0 {
-			for _, arg := range args[1:] {
-				if !isHeaderOpt.MatchString(arg) {
-					continue
-				}
+		for _, header := range input.Headers {
+			req.Header.Add(header.Name, header.Value)
+		}
 
-				parts := strings.SplitN(arg, ":", 2)
-				req.Header.Add(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
+		var shouldWriteSession bool
+		for _, header := range input.Headers {
+			if session.IsWritableHeader(header.Name) {
+				shouldWriteSession = true
+				break
 			}
+		}
 
-			if !noSession {
-				if err := session.WriteSession(req); err != nil {
-					return fmt.Errorf("could not write session: %w", err)
-				}
+		query := req.URL.Query()
+		for _, qp := range input.QueryParams {
+			query.Add(qp.Name, qp.Value)
+		}
+		req.URL.RawQuery = query.Encode()
+
+		if !noSession && shouldWriteSession {
+			if err := session.WriteSession(req); err != nil {
+				return fmt.Errorf("could not write session: %w", err)
 			}
 		}
 
@@ -134,6 +154,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
+	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)

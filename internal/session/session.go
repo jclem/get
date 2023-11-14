@@ -51,6 +51,18 @@ func ReadSession(r *http.Request) (*Session, error) {
 	return &ssn, nil
 }
 
+var writableHeaders = map[string]struct{}{
+	http.CanonicalHeaderKey("authorization"): {},
+}
+
+// IsWritableHeader returns whether or not a header is writable.
+func IsWritableHeader(h string) bool {
+	can := http.CanonicalHeaderKey(h)
+
+	_, ok := writableHeaders[can]
+	return ok
+}
+
 // WriteSession writes a session to the configuration file for the given
 // request.
 func WriteSession(req *http.Request) error {
@@ -65,8 +77,7 @@ func WriteSession(req *http.Request) error {
 	}
 
 	for k, v := range req.Header {
-		switch k { //nolint:gocritic,revive
-		case http.CanonicalHeaderKey("authorization"):
+		if IsWritableHeader(k) {
 			sess.Headers[k] = v
 		}
 	}

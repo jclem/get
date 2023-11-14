@@ -13,5 +13,6 @@ require (
 require (
 	github.com/fatih/color v1.16.0
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/prataprc/goparsec v0.0.0-20211219142520-daac0e635e7e
 	github.com/spf13/pflag v1.0.5 // indirect
 )
