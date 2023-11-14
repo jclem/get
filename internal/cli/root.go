@@ -123,6 +123,10 @@ var rootCmd = &cobra.Command{
 					return fmt.Errorf("could not write response header: %w", err)
 				}
 			}
+
+			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
+				return fmt.Errorf("could not write newline: %w", err)
+			}
 		}
 
 		noBody, err := cmd.Flags().GetBool("no-body")
