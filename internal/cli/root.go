@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,9 +58,32 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get data flag: %w", err)
 		}
 
+		if data != "" && len(input.Body) > 0 {
+			return errors.New("cannot specify both data and body")
+		}
+
+		if len(input.Body) > 0 {
+			b, err := json.Marshal(input.Body)
+			if err != nil {
+				return fmt.Errorf("could not marshal body: %w", err)
+			}
+
+			data = string(b)
+		}
+
 		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL, strings.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("could not create request: %w", err)
+		}
+
+		if len(input.Body) > 0 {
+			if !cmd.Flags().Changed(flagMethod) {
+				req.Method = http.MethodPost
+			}
+
+			if req.Header.Get("content-type") == "" {
+				req.Header.Set("content-type", "application/json")
+			}
 		}
 
 		noSession, err := cmd.Flags().GetBool(flagNoSession)

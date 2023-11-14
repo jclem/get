@@ -11,11 +11,10 @@ import (
 // var dquote = parsec.AtomExact(`"`, "DQUOTE")
 // var squote = parsec.AtomExact(`'`, "SQUOTE")
 var eq = parsec.AtomExact(`=`, "EQ")
+var col = parsec.AtomExact(`:`, "COL")
 
 var headerChar = parsec.TokenExact("[a-z]", "HEADERCHAR")
 var anyChar = parsec.TokenExact(".+", "ANYCHAR")
-var whitespace = parsec.TokenExact(`\s+`, "WHITESPACE")
-var headerJoin = eq
 
 // A ParsedHeader represents a single parsed header. They may be repeated in one
 // input.
@@ -31,17 +30,23 @@ type ParsedQueryParam struct {
 	Value string
 }
 
+type parsedKeyValue struct {
+	Key   string
+	Value string
+}
+
 // A ParsedInput represents data gathered from a user input string.
 type ParsedInput struct {
 	Headers     []ParsedHeader
 	QueryParams []ParsedQueryParam
-	Body        any
+	Body        map[string]string
 }
 
 func newParsedInput() ParsedInput {
 	return ParsedInput{
 		Headers:     make([]ParsedHeader, 0),
 		QueryParams: make([]ParsedQueryParam, 0),
+		Body:        make(map[string]string),
 	}
 }
 
@@ -70,6 +75,8 @@ func ParseInput(in []string) (*ParsedInput, error) {
 				parsed.Headers = append(parsed.Headers, n)
 			case ParsedQueryParam:
 				parsed.QueryParams = append(parsed.QueryParams, n)
+			case parsedKeyValue:
+				parsed.Body[n.Key] = n.Value
 			}
 		}
 	}
@@ -77,7 +84,7 @@ func ParseInput(in []string) (*ParsedInput, error) {
 	return &parsed, nil
 }
 
-var inputParser = parsec.OrdChoice(nil, queryParamParser, headerParser)
+var inputParser = parsec.OrdChoice(nil, queryParamParser, headerParser, keyValueParser)
 
 var headerParser = parsec.And(toHeader,
 	parsec.Many(toString, headerChar),
@@ -126,6 +133,30 @@ func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 	hd.Value = val
 
 	return hd
+}
+
+var keyValueParser = parsec.And(toKeyValue,
+	parsec.Many(toString, headerChar),
+	col,
+	parsec.Many(toString, anyChar),
+)
+
+func toKeyValue(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
+	key, ok := nodes[0].(string)
+	if !ok {
+		panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
+	}
+
+	kv := parsedKeyValue{Key: key}
+
+	val, ok := nodes[2].(string)
+	if !ok {
+		panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
+	}
+
+	kv.Value = val
+
+	return kv
 }
 
 func toString(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
