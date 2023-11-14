@@ -74,7 +74,7 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		if !noSession && !wroteHeader {
+		if !noSession {
 			ssn, err := readSession(req)
 			if err != nil && !errors.Is(err, errNoSession) {
 				return err
