@@ -23,7 +23,7 @@ const flagData = "data"
 const flagHTTP = "http"
 
 var rootCmd = &cobra.Command{
-	Use:   "get <url>",
+	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
 	Short: "Get is a command-line interface for making HTTP requests",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
