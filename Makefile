@@ -1,6 +1,6 @@
 .PHONY: check
 
-tmp/get: internal/**/*.go
+tmp/get: main.go internal/**/*.go
 	go build -o ./tmp/get .
 
 check:
