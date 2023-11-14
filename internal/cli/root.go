@@ -34,7 +34,17 @@ var rootCmd = &cobra.Command{
 			return err
 		}
 
-		req, err := http.NewRequestWithContext(cmd.Context(), method, url, nil)
+		data, err := cmd.Flags().GetString(flagData)
+		if err != nil {
+			return fmt.Errorf("could not get data flag: %w", err)
+		}
+
+		var bodyReader io.Reader
+		if data != "" {
+			bodyReader = strings.NewReader(data)
+		}
+
+		req, err := http.NewRequestWithContext(cmd.Context(), method, url, bodyReader)
 		if err != nil {
 			return fmt.Errorf("could not create request: %w", err)
 		}
@@ -100,6 +110,12 @@ var rootCmd = &cobra.Command{
 				}
 			}
 
+			if data != "" {
+				if _, err := color.New(color.FgBlue).Fprintf(cmd.OutOrStdout(), "\n%s\n", data); err != nil {
+					return fmt.Errorf("could not write request body: %w", err)
+				}
+			}
+
 			if _, err := fmt.Fprintln(cmd.OutOrStdout()); err != nil {
 				return fmt.Errorf("could not write newline: %w", err)
 			}
@@ -161,6 +177,7 @@ const flagNoHeaders = "no-headers"
 const flagNoSession = "no-session"
 const flagMethod = "method"
 const flagVerbose = "verbose"
+const flagData = "data"
 
 // Execute runs the root command.
 func Execute(ctx context.Context) error {
@@ -169,6 +186,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
+	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)
