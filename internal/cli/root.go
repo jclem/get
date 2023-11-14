@@ -39,6 +39,11 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not create request: %w", err)
 		}
 
+		noSession, err := cmd.Flags().GetBool("no-session")
+		if err != nil {
+			return fmt.Errorf("could not get no-session flag: %w", err)
+		}
+
 		if len(args[1:]) > 0 {
 			for _, arg := range args[1:] {
 				if !isHeaderOpt.MatchString(arg) {
@@ -49,11 +54,13 @@ var rootCmd = &cobra.Command{
 				req.Header.Add(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 			}
 
-			if err := writeSessionConfiguration(req); err != nil {
-				return err
+			if !noSession {
+				if err := writeSession(req); err != nil {
+					return err
+				}
 			}
-		} else {
-			ssn, err := readSessionConfiguration(req)
+		} else if !noSession {
+			ssn, err := readSession(req)
 			if err != nil && !errors.Is(err, errNoSession) {
 				return err
 			}
@@ -148,6 +155,7 @@ var rootCmd = &cobra.Command{
 func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP("no-body", "B", false, "Do not print the response body")
 	rootCmd.Flags().BoolP("no-headers", "H", false, "Do not print the response headers")
+	rootCmd.Flags().BoolP("no-session", "S", false, "Do not use a stored session if one exists for this host")
 	rootCmd.Flags().StringP("method", "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP("verbose", "v", false, "Print verbose output")
 
@@ -247,7 +255,7 @@ func getConfiguration() (*config, error) {
 
 var errNoSession = errors.New("no session")
 
-func readSessionConfiguration(req *http.Request) (*session, error) {
+func readSession(req *http.Request) (*session, error) {
 	cfg, err := getConfiguration()
 	if err != nil {
 		return nil, err
@@ -261,7 +269,7 @@ func readSessionConfiguration(req *http.Request) (*session, error) {
 	return &ssn, nil
 }
 
-func writeSessionConfiguration(req *http.Request) error {
+func writeSession(req *http.Request) error {
 	cfg, err := getConfiguration()
 	if err != nil {
 		return err
