@@ -44,22 +44,27 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get no-session flag: %w", err)
 		}
 
+		wroteHeader := false
+
 		if len(args[1:]) > 0 {
 			for _, arg := range args[1:] {
 				if !isHeaderOpt.MatchString(arg) {
 					continue
 				}
 
+				wroteHeader = true
 				parts := strings.SplitN(arg, ":", 2)
 				req.Header.Add(strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]))
 			}
 
-			if !noSession {
+			if wroteHeader && !noSession {
 				if err := writeSession(req); err != nil {
 					return err
 				}
 			}
-		} else if !noSession {
+		}
+
+		if !noSession && !wroteHeader {
 			ssn, err := readSession(req)
 			if err != nil && !errors.Is(err, errNoSession) {
 				return err
