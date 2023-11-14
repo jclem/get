@@ -3,6 +3,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"fmt"
 
 	parsec "github.com/prataprc/goparsec"
@@ -32,21 +33,21 @@ type ParsedQueryParam struct {
 
 type parsedKeyValue struct {
 	Key   string
-	Value string
+	Value json.RawMessage
 }
 
 // A ParsedInput represents data gathered from a user input string.
 type ParsedInput struct {
 	Headers     []ParsedHeader
 	QueryParams []ParsedQueryParam
-	Body        map[string]string
+	Body        map[string]json.RawMessage
 }
 
 func newParsedInput() ParsedInput {
 	return ParsedInput{
 		Headers:     make([]ParsedHeader, 0),
 		QueryParams: make([]ParsedQueryParam, 0),
-		Body:        make(map[string]string),
+		Body:        make(map[string]json.RawMessage),
 	}
 }
 
@@ -84,7 +85,7 @@ func ParseInput(in []string) (*ParsedInput, error) {
 	return &parsed, nil
 }
 
-var inputParser = parsec.OrdChoice(nil, queryParamParser, headerParser, keyValueParser)
+var inputParser = parsec.OrdChoice(nil, queryParamParser, keyValueParser, headerParser)
 
 var headerParser = parsec.And(toHeader,
 	parsec.Many(toString, headerChar),
@@ -137,6 +138,7 @@ func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 
 var keyValueParser = parsec.And(toKeyValue,
 	parsec.Many(toString, headerChar),
+	parsec.Maybe(nil, col),
 	eq,
 	parsec.Many(toString, anyChar),
 )
@@ -149,12 +151,27 @@ func toKeyValue(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 
 	kv := parsedKeyValue{Key: key}
 
-	val, ok := nodes[2].(string)
+	isRawJSON := false
+	_, ok = nodes[1].(parsec.MaybeNone)
 	if !ok {
-		panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
+		isRawJSON = true
 	}
 
-	kv.Value = val
+	if isRawJSON {
+		val, ok := nodes[3].(string)
+		if !ok {
+			panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
+		}
+
+		kv.Value = json.RawMessage(val)
+	} else {
+		val, ok := nodes[3].(string)
+		if !ok {
+			panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
+		}
+
+		kv.Value = json.RawMessage(`"` + val + `"`)
+	}
 
 	return kv
 }
