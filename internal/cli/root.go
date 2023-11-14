@@ -316,7 +316,10 @@ func writeSession(req *http.Request) error {
 	sess.Headers = make(map[string][]string)
 
 	for k, v := range req.Header {
-		sess.Headers[k] = v
+		switch k { //nolint:gocritic,revive
+		case http.CanonicalHeaderKey("authorization"):
+			sess.Headers[k] = v
+		}
 	}
 
 	// Write the session.
