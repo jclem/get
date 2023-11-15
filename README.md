@@ -26,14 +26,15 @@ Available Commands:
   help                              Help about any command
 
 Flags:
-  -d, --data string     Data to send in the request body
-  -h, --help            help for get
-      --http            Use HTTP instead of HTTPS
-  -X, --method string   HTTP method to use (default "GET")
-  -B, --no-body         Do not print the response body
-  -H, --no-headers      Do not print the response headers
-  -S, --no-session      Do not use a stored session if one exists for this host
-  -v, --verbose         Print verbose output
+  -d, --data string      Data to send in the request body
+  -h, --help             help for get
+      --http             Use HTTP instead of HTTPS
+  -X, --method string    HTTP method to use (default "GET")
+  -B, --no-body          Do not print the response body
+  -H, --no-headers       Do not print the response headers
+  -S, --no-session       Do not use a stored session if one exists for this host
+  -s, --session string   Session name to use (defaults to URL host)
+  -v, --verbose          Print verbose output
 
 Use "get [command] --help" for more information about a command.
 ```
