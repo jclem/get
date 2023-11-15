@@ -9,13 +9,8 @@ import (
 	parsec "github.com/prataprc/goparsec"
 )
 
-// var dquote = parsec.AtomExact(`"`, "DQUOTE")
-// var squote = parsec.AtomExact(`'`, "SQUOTE")
-var eq = parsec.AtomExact(`=`, "EQ")
-var col = parsec.AtomExact(`:`, "COL")
-
-var headerChar = parsec.TokenExact("[a-z]", "HEADERCHAR")
-var anyChar = parsec.TokenExact(".+", "ANYCHAR")
+var equalsSign = parsec.AtomExact(`=`, "EQ")
+var colon = parsec.AtomExact(`:`, "COL")
 
 // A ParsedHeader represents a single parsed header. They may be repeated in one
 // input.
@@ -85,13 +80,15 @@ func ParseInput(in []string) (*ParsedInput, error) {
 	return &parsed, nil
 }
 
-var inputParser = parsec.OrdChoice(nil, queryParamParser, keyValueParser, headerParser)
+var inputParser = parsec.OrdChoice(nil, queryParamParser, headerParser, keyValueParser)
 
-var headerParser = parsec.And(toHeader,
-	parsec.Many(toString, headerChar),
-	col,
-	parsec.Many(toString, anyChar),
-)
+// A header key can be alphanumeric with underscores and hyphens.
+var headerKey = parsec.Many(toString, parsec.TokenExact("[A-Za-z0-9-_]", "HEADERKEYCHAR"))
+
+// A header value can be any character.
+var headerVal = parsec.Many(toString, parsec.TokenExact(".", "HEADERVALCHAR"))
+
+var headerParser = parsec.And(toHeader, headerKey, colon, headerVal)
 
 func toHeader(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 	name, ok := nodes[0].(string)
@@ -99,23 +96,19 @@ func toHeader(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 		panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
 	}
 
-	hd := ParsedHeader{Name: name}
-
-	val, ok := nodes[2].(string)
+	value, ok := nodes[2].(string)
 	if !ok {
 		panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
 	}
 
-	hd.Value = val
-
-	return hd
+	return ParsedHeader{Name: name, Value: value}
 }
 
 var queryParamParser = parsec.And(toQueryParam,
-	parsec.Many(toString, headerChar),
-	eq,
-	eq,
-	parsec.Many(toString, anyChar),
+	parsec.Many(toString, parsec.TokenExact("[^=]", "QUERYKEYCHAR")),
+	equalsSign,
+	equalsSign,
+	parsec.Many(toString, parsec.TokenExact(".", "QUERYVALCHAR")),
 )
 
 func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
@@ -124,23 +117,19 @@ func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 		panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
 	}
 
-	hd := ParsedQueryParam{Name: name}
-
-	val, ok := nodes[3].(string)
+	value, ok := nodes[3].(string)
 	if !ok {
 		panic(fmt.Sprintf("unexpected type: %T\n", nodes[2]))
 	}
 
-	hd.Value = val
-
-	return hd
+	return ParsedQueryParam{Name: name, Value: value}
 }
 
 var keyValueParser = parsec.And(toKeyValue,
-	parsec.Many(toString, headerChar),
-	parsec.Maybe(nil, col),
-	eq,
-	parsec.Many(toString, anyChar),
+	parsec.Many(toString, parsec.TokenExact(".+", "KEYCHAR")),
+	parsec.Maybe(nil, colon),
+	equalsSign,
+	parsec.Many(toString, parsec.TokenExact(".+", "VALCHAR")),
 )
 
 func toKeyValue(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
@@ -180,12 +169,12 @@ func toString(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 	var str string
 
 	for _, node := range nodes {
-		term, ok := node.(*parsec.Terminal)
-		if !ok {
+		switch node := node.(type) {
+		case *parsec.Terminal:
+			str += node.Value
+		default:
 			panic(fmt.Sprintf("unexpected type: %T\n", node))
 		}
-
-		str += term.Value
 	}
 
 	return str

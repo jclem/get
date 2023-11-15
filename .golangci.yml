@@ -13,6 +13,7 @@ linters:
     - gofumpt
     - gomnd
     - interfacebloat # Big interface is okay.
+    - lll # More often annoying
     - nakedret # Makes it impossble to handle errors in defer.
     - nonamedreturns # Makes it impossble to handle errors in defer.
     - nlreturn
