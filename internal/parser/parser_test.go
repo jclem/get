@@ -1,7 +1,6 @@
 package parser_test
 
 import (
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -39,16 +38,15 @@ func (b *resultBuilder) withQueryParam(name, value string) *resultBuilder {
 	return b
 }
 
-// func (b *resultBuilder) withBodyParam(name string, value json.RawMessage) *resultBuilder {
-// 	b.Body[name] = value
-// 	return b
-// }
+func (b *resultBuilder) withBodyParam(body any) *resultBuilder {
+	b.Body = body
+	return b
+}
 
 func newResultBuilder() *resultBuilder {
 	return &resultBuilder{&parser.ParsedInput{
 		Headers:     make([]parser.ParsedHeader, 0),
 		QueryParams: make([]parser.ParsedQueryParam, 0),
-		Body:        make(map[string]json.RawMessage),
 	}}
 }
 
@@ -90,11 +88,97 @@ func TestParseInput(t *testing.T) {
 			error:  nil,
 		},
 	}, {
-		description: "ErrorsOnDisallowedQueryParamChar",
-		input:       testInput{input: []string{`foo=bar baz==bar`}},
+		description: "ParsesSimpleKVBodyParam",
+		input:       testInput{input: []string{`foo=bar`}},
 		output: testOutput{
-			result: nil,
-			error:  errors.New(`unexpected input: "foo=bar baz==bar"`),
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": "bar"}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesNestedKVBodyParam",
+		input:       testInput{input: []string{`foo[bar]=baz`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": "baz"}}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesMultiNestedKVBodyParam",
+		input:       testInput{input: []string{`foo[bar][baz][qux]=quux`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": map[string]any{"baz": map[string]any{"qux": "quux"}}}}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesArrayEndParam",
+		input:       testInput{input: []string{`[]=foo`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam([]any{"foo"}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesNestedArrayEndParam",
+		input:       testInput{input: []string{`foo[][]=bar`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": []any{[]any{"bar"}}}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesArrayIndexParam",
+		input:       testInput{input: []string{`[1]=foo`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam([]any{nil, "foo"}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesNestedArrayIndexParam",
+		input:       testInput{input: []string{`foo[0][0]=bar`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": []any{[]any{"bar"}}}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesComplexParam",
+		input:       testInput{input: []string{`foo[][bar]=baz`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": []any{map[string]any{"bar": "baz"}}}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesMultipleComplexParams",
+		input:       testInput{input: []string{`foo[][bar]=baz`, `foo[][qux]=quux`, `foo[3][][][a][][4][][b][c][][d]=x`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{
+				"foo": []any{
+					map[string]any{"bar": "baz"},
+					map[string]any{"qux": "quux"},
+					nil,
+					[]any{
+						[]any{
+							map[string]any{
+								"a": []any{
+									[]any{nil, nil, nil, nil, []any{
+										map[string]any{
+											"b": map[string]any{
+												"c": []any{
+													map[string]any{"d": "x"},
+												},
+											},
+										},
+									},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			error: nil,
+		},
+	}, {
+		description: "ParsesRawJSONValues",
+		input:       testInput{input: []string{`foo:={"bar":"baz"}`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": "baz"}}),
 		},
 	}}
 

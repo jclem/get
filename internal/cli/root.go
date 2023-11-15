@@ -59,11 +59,11 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get data flag: %w", err)
 		}
 
-		if data != "" && len(input.Body) > 0 {
+		if data != "" && input.Body != nil {
 			return errors.New("cannot specify both data and body")
 		}
 
-		if len(input.Body) > 0 {
+		if input.Body != nil {
 			b, err := json.Marshal(input.Body)
 			if err != nil {
 				return fmt.Errorf("could not marshal body: %w", err)
@@ -86,7 +86,7 @@ var rootCmd = &cobra.Command{
 			sessionName = req.URL.Host
 		}
 
-		if len(input.Body) > 0 {
+		if input.Body != nil {
 			if !cmd.Flags().Changed(flagMethod) {
 				req.Method = http.MethodPost
 			}
