@@ -17,6 +17,7 @@ import (
 const flagNoBody = "no-body"
 const flagNoHeaders = "no-headers"
 const flagNoSession = "no-session"
+const flagSession = "session"
 const flagMethod = "method"
 const flagVerbose = "verbose"
 const flagData = "data"
@@ -76,6 +77,15 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not create request: %w", err)
 		}
 
+		sessionName, err := cmd.Flags().GetString(flagSession)
+		if err != nil {
+			return fmt.Errorf("could not get session flag: %w", err)
+		}
+
+		if sessionName == "" {
+			sessionName = req.URL.Host
+		}
+
 		if len(input.Body) > 0 {
 			if !cmd.Flags().Changed(flagMethod) {
 				req.Method = http.MethodPost
@@ -110,13 +120,13 @@ var rootCmd = &cobra.Command{
 		req.URL.RawQuery = query.Encode()
 
 		if !noSession && shouldWriteSession {
-			if err := session.WriteSession(req); err != nil {
+			if err := session.WriteSession(sessionName, req); err != nil {
 				return fmt.Errorf("could not write session: %w", err)
 			}
 		}
 
 		if !noSession {
-			ssn, err := session.ReadSession(req)
+			ssn, err := session.ReadSession(sessionName)
 			if err != nil && !errors.Is(err, session.ErrNoSession) {
 				return fmt.Errorf("could not read session: %w", err)
 			}
@@ -179,6 +189,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
 	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS")
+	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)

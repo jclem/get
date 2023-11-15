@@ -37,13 +37,13 @@ var ErrNoSession = errors.New("no session")
 
 // ReadSession reads a session from the configuration file for the given
 // request.
-func ReadSession(r *http.Request) (*Session, error) {
+func ReadSession(name string) (*Session, error) {
 	cfg, err := getConfiguration()
 	if err != nil {
 		return nil, err
 	}
 
-	ssn, ok := cfg.Sessions[r.URL.Host]
+	ssn, ok := cfg.Sessions[name]
 	if !ok {
 		return nil, ErrNoSession
 	}
@@ -65,15 +65,16 @@ func IsWritableHeader(h string) bool {
 
 // WriteSession writes a session to the configuration file for the given
 // request.
-func WriteSession(req *http.Request) error {
+func WriteSession(name string, req *http.Request) error {
 	cfg, err := getConfiguration()
 	if err != nil {
 		return err
 	}
 
-	sess, ok := cfg.Sessions[req.URL.Host]
+	sess, ok := cfg.Sessions[name]
 	if !ok {
 		sess = newSession()
+		cfg.Sessions[name] = sess
 	}
 
 	for k, v := range req.Header {
@@ -81,8 +82,6 @@ func WriteSession(req *http.Request) error {
 			sess.Headers[k] = v
 		}
 	}
-
-	cfg.Sessions[req.URL.Host] = sess
 
 	b, err := json.Marshal(cfg)
 	if err != nil {
