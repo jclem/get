@@ -180,6 +180,20 @@ func TestParseInput(t *testing.T) {
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": "baz"}}),
 		},
+	}, {
+		description: "SetsMultipleArrayEnd",
+		input:       testInput{input: []string{`foo[]=bar`, `foo[]=baz`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": []any{"bar", "baz"}}),
+			error:  nil,
+		},
+	}, {
+		description: "SetsMultipleArrayIndex",
+		input:       testInput{input: []string{`foo[]=bar`, `foo[]=baz`, `foo[2]=qux`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": []any{"bar", "baz", "qux"}}),
+			error:  nil,
+		},
 	}}
 
 	for _, testCase := range testCases {

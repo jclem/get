@@ -193,9 +193,10 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 		switch t := currentTarget.(type) {
 		case []any:
 			if p.index >= len(t) {
-				a := make([]any, p.index+1)
-				copy(a, t)
-				setCurrentTarget(a)
+				c := make([]any, p.index+1)
+				copy(c, t)
+				c[p.index] = a.value
+				setCurrentTarget(c)
 			} else {
 				t[p.index] = a.value
 			}
@@ -209,7 +210,7 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 	case accessArrayEnd:
 		switch t := currentTarget.(type) {
 		case []any:
-			t[0] = a.value
+			setCurrentTarget(append(t, a.value))
 		case nil:
 			val := make([]any, 1)
 			val[0] = a.value

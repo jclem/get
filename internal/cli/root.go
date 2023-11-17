@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/jclem/get/internal/parser"
@@ -24,6 +25,7 @@ const flagData = "data"
 const flagHTTP = "http"
 const flagNoHighlight = "no-highlight"
 const flagStream = "stream"
+const flagForm = "form"
 
 var rootCmd = &cobra.Command{
 	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
@@ -65,13 +67,46 @@ var rootCmd = &cobra.Command{
 			return errors.New("cannot specify both data and body")
 		}
 
-		if input.Body != nil {
-			b, err := json.Marshal(input.Body)
-			if err != nil {
-				return fmt.Errorf("could not marshal body: %w", err)
-			}
+		sendForm, err := cmd.Flags().GetBool(flagForm)
+		if err != nil {
+			return fmt.Errorf("could not get form flag: %w", err)
+		}
 
-			data = string(b)
+		if input.Body != nil {
+			if sendForm {
+				form := url.Values{}
+				m, ok := input.Body.(map[string]any)
+				if !ok {
+					return errors.New("form body must be an object")
+				}
+
+				for k, v := range m {
+					switch vs := v.(type) {
+					case string:
+						form.Add(k, vs)
+					case []any:
+						for _, v := range vs {
+							vs, ok := v.(string)
+							if !ok {
+								return errors.New("form body values must be string or string arrays")
+							}
+
+							form.Add(k, vs)
+						}
+					default:
+						return errors.New("form body values must be string or string arrays")
+					}
+				}
+
+				data = form.Encode()
+			} else {
+				b, err := json.Marshal(input.Body)
+				if err != nil {
+					return fmt.Errorf("could not marshal body: %w", err)
+				}
+
+				data = string(b)
+			}
 		}
 
 		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL, strings.NewReader(data))
@@ -94,7 +129,11 @@ var rootCmd = &cobra.Command{
 			}
 
 			if req.Header.Get("content-type") == "" {
-				req.Header.Set("content-type", "application/json")
+				if sendForm {
+					req.Header.Set("content-type", "application/x-www-form-urlencoded")
+				} else {
+					req.Header.Set("content-type", "application/json")
+				}
 			}
 		}
 
@@ -209,6 +248,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
 	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
+	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)
