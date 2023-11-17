@@ -30,8 +30,38 @@ func (w *Writer) Write(p []byte) (int, error) {
 	return b, nil
 }
 
+type printOpts struct {
+	highlight bool
+	headers   bool
+	body      bool
+}
+
+func newPrintOpts(opts []PrintOpt) printOpts {
+	opt := printOpts{
+		highlight: true,
+	}
+
+	for _, o := range opts {
+		o(&opt)
+	}
+
+	return opt
+}
+
+// A PrintOpt is an option for printing an HTTP request or response.
+type PrintOpt func(*printOpts)
+
+// WithHighlight specifies that the request/response body should be highlighted.
+func WithHighlight(b bool) PrintOpt {
+	return func(o *printOpts) {
+		o.highlight = b
+	}
+}
+
 // PrintRequest prints information about an HTTP request.
-func (w *Writer) PrintRequest(req *http.Request, highlight bool) error {
+func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error {
+	printOpts := newPrintOpts(opts)
+
 	path := req.URL.Path
 
 	if path == "" {
@@ -60,10 +90,10 @@ func (w *Writer) PrintRequest(req *http.Request, highlight bool) error {
 		return fmt.Errorf("could not read request body: %w", err)
 	}
 
-	if len(b) > 0 {
+	if len(b) > 0 { //nolint:nestif
 		bodyString := string(b)
 
-		if highlight {
+		if printOpts.highlight {
 			var j any
 			if err := json.Unmarshal(b, &j); err != nil {
 				return fmt.Errorf("could not unmarshal request body: %w", err)
@@ -90,36 +120,25 @@ func (w *Writer) PrintRequest(req *http.Request, highlight bool) error {
 	return w.Printf("\n")
 }
 
-type printResponseOpts struct {
-	noHeaders bool
-	noBody    bool
-}
-
-// A PrintResponseOpt is an option for printing an HTTP response.
-type PrintResponseOpt func(*printResponseOpts)
-
 // WithHeaders specifies that the response headers should be printed.
-func WithHeaders(b bool) PrintResponseOpt {
-	return func(o *printResponseOpts) {
-		o.noHeaders = !b
+func WithHeaders(b bool) PrintOpt {
+	return func(o *printOpts) {
+		o.headers = b
 	}
 }
 
 // WithBody specifies that the response body should be printed.
-func WithBody(b bool) PrintResponseOpt {
-	return func(o *printResponseOpts) {
-		o.noBody = !b
+func WithBody(b bool) PrintOpt {
+	return func(o *printOpts) {
+		o.body = b
 	}
 }
 
 // PrintResponse prints information about an HTTP response.
-func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintResponseOpt) error {
-	o := &printResponseOpts{}
-	for _, opt := range opts {
-		opt(o)
-	}
+func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
+	o := newPrintOpts(opts)
 
-	if !o.noHeaders {
+	if o.headers {
 		if err := w.PrintfGreen("%s %s\n", resp.Proto, resp.Status); err != nil {
 			return err
 		}
@@ -133,7 +152,7 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintResponseOpt) er
 		}
 	}
 
-	if !o.noBody {
+	if o.body {
 		if _, err := io.Copy(w, resp.Body); err != nil {
 			return fmt.Errorf("could not write response body: %w", err)
 		}

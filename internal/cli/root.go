@@ -152,7 +152,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		if verbose {
-			if err := out.PrintRequest(req, !noHighlight); err != nil {
+			if err := out.PrintRequest(req, writer.WithHighlight(!noHighlight)); err != nil {
 				return fmt.Errorf("could not print request: %w", err)
 			}
 		}
@@ -178,7 +178,11 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get no-body flag: %w", err)
 		}
 
-		if err := out.PrintResponse(resp, writer.WithHeaders(!noHeaders), writer.WithBody(!noBody)); err != nil {
+		if err := out.PrintResponse(resp,
+			writer.WithHeaders(!noHeaders),
+			writer.WithBody(!noBody),
+			writer.WithHighlight(!noHighlight),
+		); err != nil {
 			return fmt.Errorf("could not print response: %w", err)
 		}
 
