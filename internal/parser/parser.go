@@ -98,7 +98,9 @@ func ParseInput(in []string) (*ParsedInput, error) {
 			case ParsedQueryParam:
 				parsed.QueryParams = append(parsed.QueryParams, n)
 			case parsedAccess:
-				handleParsedAccess(&parsed, n)
+				if err := handleParsedAccess(&parsed, n); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -106,7 +108,7 @@ func ParseInput(in []string) (*ParsedInput, error) {
 	return &parsed, nil
 }
 
-func handleParsedAccess(p *ParsedInput, a parsedAccess) {
+func handleParsedAccess(p *ParsedInput, a parsedAccess) error {
 	currentTarget := p.Body
 	setCurrentTarget := func(v any) {
 		p.Body = v
@@ -129,7 +131,7 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 					t[s.key] = v
 				}
 			default:
-				panic(fmt.Sprintf("unexpected type in path (expected nil/map): %T", t))
+				return fmt.Errorf("attempted to access key of non-object (%T): %+v", t, t)
 			}
 		case accessArrayIndex:
 			switch t := (currentTarget).(type) {
@@ -153,7 +155,7 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 					currentTarget = t[s.index]
 				}
 			default:
-				panic(fmt.Sprintf("unexpected type: %T", t))
+				return fmt.Errorf("attempted to access index of non-array (%T): %+v", t, t)
 			}
 		case accessArrayEnd:
 			switch t := (currentTarget).(type) {
@@ -172,10 +174,10 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 					t[len(t)-1] = v
 				}
 			default:
-				panic(fmt.Sprintf("unexpected type: %T", t))
+				return fmt.Errorf("attempted to access end of non-array (%T): %+v", t, t)
 			}
 		default:
-			panic(fmt.Sprintf("unexpected type: %T", s))
+			return fmt.Errorf("unexpected access path type: %T", s)
 		}
 	}
 
@@ -187,7 +189,7 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 		case nil:
 			setCurrentTarget(map[string]any{p.key: a.value})
 		default:
-			panic(fmt.Sprintf("unexpected type: %T", t))
+			return fmt.Errorf("attempted to set key of non-object (%T): %+v", t, t)
 		}
 	case accessArrayIndex:
 		switch t := currentTarget.(type) {
@@ -205,7 +207,7 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 			val[p.index] = a.value
 			setCurrentTarget(val)
 		default:
-			panic(fmt.Sprintf("unexpected type: %T", t))
+			return fmt.Errorf("attempted to set index of non-array (%T): %+v", t, t)
 		}
 	case accessArrayEnd:
 		switch t := currentTarget.(type) {
@@ -216,11 +218,13 @@ func handleParsedAccess(p *ParsedInput, a parsedAccess) {
 			val[0] = a.value
 			setCurrentTarget(val)
 		default:
-			panic(fmt.Sprintf("unexpected type: %T", t))
+			return fmt.Errorf("attempted to set end of non-array (%T): %+v", t, t)
 		}
 	default:
-		panic(fmt.Sprintf("unexpected type: %T", p))
+		return fmt.Errorf("unexpected access path type: %T", p)
 	}
+
+	return nil
 }
 
 var inputParser = parsec.OrdChoice(nil, accessJSONParser, queryParamParser, headerParser, accessStringParser)
