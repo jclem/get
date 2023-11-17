@@ -3,6 +3,7 @@
 package writer
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,8 +58,18 @@ func (w *Writer) PrintRequest(req *http.Request) error {
 		return fmt.Errorf("could not read request body: %w", err)
 	}
 
-	if bs := string(b); bs != "" {
-		if err := w.Printf("\n%s\n", bs); err != nil {
+	if len(b) > 0 {
+		var j any
+		if err := json.Unmarshal(b, &j); err != nil {
+			return fmt.Errorf("could not unmarshal request body: %w", err)
+		}
+
+		js, err := json.MarshalIndent(j, "", "  ")
+		if err != nil {
+			return fmt.Errorf("could not marshal request body: %w", err)
+		}
+
+		if err := w.Printf("\n%s\n", js); err != nil {
 			return err
 		}
 	}

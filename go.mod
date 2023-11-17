@@ -19,4 +19,5 @@ require (
 	github.com/prataprc/goparsec v0.0.0-20211219142520-daac0e635e7e
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.8.4
+	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
 )

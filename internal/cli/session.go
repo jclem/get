@@ -8,6 +8,7 @@ import (
 
 	"github.com/jclem/get/internal/session"
 	"github.com/spf13/cobra"
+	"golang.org/x/exp/maps"
 )
 
 var sessionCmd = &cobra.Command{
@@ -24,40 +25,32 @@ var sessionListCmd = &cobra.Command{
 			return fmt.Errorf("could not get configuration: %w", err)
 		}
 
-		// TSV output
 		w := tabwriter.NewWriter(cmd.OutOrStdout(), 4, 4, 4, ' ', 0)
 		_, _ = fmt.Fprintln(w, "Name\tHeaders")
 
-		names := make([]string, 0, len(cfg.Sessions))
-		for name := range cfg.Sessions {
-			names = append(names, name)
-		}
-
+		names := maps.Keys(cfg.Sessions)
 		slices.Sort(names)
 
 		for _, name := range names {
 			ssn := cfg.Sessions[name]
 
-			headerNames := make([]string, 0, len(ssn.Headers))
-			for name := range ssn.Headers {
-				headerNames = append(headerNames, name)
-			}
-
+			headerNames := maps.Keys(ssn.Headers)
 			slices.Sort(headerNames)
-			headers := []string{}
 
+			headersList := []string{}
 			for i, name := range headerNames {
-				v := ssn.Headers[name]
-				for j, vv := range v {
+				values := ssn.Headers[name]
+				for j, value := range values {
+					maybeTab := ""
 					if i > 0 || j > 0 {
-						headers = append(headers, fmt.Sprintf("\t%s: %s", name, vv))
-					} else {
-						headers = append(headers, fmt.Sprintf("%s: %s", name, vv))
+						maybeTab = "\t"
 					}
+
+					headersList = append(headersList, fmt.Sprintf("%s%s: %s", maybeTab, name, value))
 				}
 			}
 
-			_, _ = fmt.Fprintf(w, "%s\t%s\n", name, strings.Join(headers, "\n"))
+			_, _ = fmt.Fprintf(w, "%s\t%s\n", name, strings.Join(headersList, "\n"))
 		}
 
 		if err := w.Flush(); err != nil {
