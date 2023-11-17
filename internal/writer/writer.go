@@ -70,7 +70,7 @@ func WithStream(b bool) PrintOpt {
 }
 
 // PrintRequest prints information about an HTTP request.
-func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error {
+func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error { //nolint:gocognit
 	printOpts := newPrintOpts(opts)
 
 	path := req.URL.Path
