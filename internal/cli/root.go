@@ -23,6 +23,7 @@ const flagVerbose = "verbose"
 const flagData = "data"
 const flagHTTP = "http"
 const flagNoHighlight = "no-highlight"
+const flagStream = "stream"
 
 var rootCmd = &cobra.Command{
 	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
@@ -178,10 +179,16 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get no-body flag: %w", err)
 		}
 
+		stream, err := cmd.Flags().GetBool(flagStream)
+		if err != nil {
+			return fmt.Errorf("could not get stream flag: %w", err)
+		}
+
 		if err := out.PrintResponse(resp,
 			writer.WithHeaders(!noHeaders),
 			writer.WithBody(!noBody),
 			writer.WithHighlight(!noHighlight),
+			writer.WithStream(stream),
 		); err != nil {
 			return fmt.Errorf("could not print response: %w", err)
 		}
@@ -201,6 +208,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS")
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
 	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
+	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)

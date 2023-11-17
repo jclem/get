@@ -5,12 +5,15 @@ package writer
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
-	"github.com/alecthomas/chroma/quick"
+	"github.com/alecthomas/chroma/formatters"
+	"github.com/alecthomas/chroma/lexers"
+	"github.com/alecthomas/chroma/styles"
 	"github.com/fatih/color"
 )
 
@@ -34,6 +37,7 @@ type printOpts struct {
 	highlight bool
 	headers   bool
 	body      bool
+	stream    bool
 }
 
 func newPrintOpts(opts []PrintOpt) printOpts {
@@ -55,6 +59,13 @@ type PrintOpt func(*printOpts)
 func WithHighlight(b bool) PrintOpt {
 	return func(o *printOpts) {
 		o.highlight = b
+	}
+}
+
+// WithStream specifies that the response body should be streamed.
+func WithStream(b bool) PrintOpt {
+	return func(o *printOpts) {
+		o.stream = b
 	}
 }
 
@@ -94,22 +105,54 @@ func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error {
 		bodyString := string(b)
 
 		if printOpts.highlight {
-			var j any
-			if err := json.Unmarshal(b, &j); err != nil {
-				return fmt.Errorf("could not unmarshal request body: %w", err)
+			ct := req.Header.Get("content-type")
+			parts := strings.Split(ct, ";")
+
+			mimeType := "application/octet-stream"
+			if len(parts) > 0 {
+				mimeType = parts[0]
 			}
 
-			js, err := json.MarshalIndent(j, "", "  ")
+			if mimeType == "application/json" {
+				var j any
+				if err := json.Unmarshal(b, &j); err != nil {
+					return fmt.Errorf("could not unmarshal request body: %w", err)
+				}
+
+				js, err := json.MarshalIndent(j, "", "  ")
+				if err != nil {
+					return fmt.Errorf("could not marshal request body: %w", err)
+				}
+
+				bodyString = string(js)
+			}
+
+			lexer := lexers.MatchMimeType(mimeType)
+			if lexer == nil {
+				lexer = lexers.Fallback
+			}
+
+			style := styles.Get("monokai")
+			if style == nil {
+				return errors.New("could not get style")
+			}
+
+			formatter := formatters.Get("terminal")
+			if formatter == nil {
+				return errors.New("could not get formatter")
+			}
+
+			it, err := lexer.Tokenise(nil, bodyString)
 			if err != nil {
-				return fmt.Errorf("could not marshal request body: %w", err)
+				return fmt.Errorf("could not tokenise response body: %w", err)
 			}
 
-			b := bytes.NewBuffer([]byte{})
-			if err := quick.Highlight(b, string(js), "json", "terminal", "monokai"); err != nil {
-				return fmt.Errorf("could not highlight request body: %w", err)
+			bw := bytes.NewBuffer([]byte{})
+			if err := formatter.Format(bw, style, it); err != nil {
+				return fmt.Errorf("could not format response body: %w", err)
 			}
 
-			bodyString = b.String()
+			bodyString = bw.String()
 		}
 
 		if err := w.Printf("\n%s\n", bodyString); err != nil {
@@ -152,9 +195,63 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
 		}
 	}
 
-	if o.body {
+	if !o.body {
+		return nil
+	}
+
+	if o.highlight && !o.stream { //nolint:nestif
+		ct := resp.Header.Get("content-type")
+		parts := strings.Split(ct, ";")
+
+		mimeType := "application/octet-stream"
+		if len(parts) > 0 {
+			mimeType = parts[0]
+		}
+
+		lexer := lexers.MatchMimeType(mimeType)
+		if lexer == nil {
+			lexer = lexers.Fallback
+		}
+
+		style := styles.Get("monokai")
+		if style == nil {
+			return errors.New("could not get style")
+		}
+
+		formatter := formatters.Get("terminal")
+		if formatter == nil {
+			return errors.New("could not get formatter")
+		}
+
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("could not read response body: %w", err)
+		}
+
+		it, err := lexer.Tokenise(nil, string(b))
+		if err != nil {
+			return fmt.Errorf("could not tokenise response body: %w", err)
+		}
+
+		if err := formatter.Format(w.w, style, it); err != nil {
+			return fmt.Errorf("could not format response body: %w", err)
+		}
+
+		return nil
+	}
+
+	if o.stream {
 		if _, err := io.Copy(w, resp.Body); err != nil {
 			return fmt.Errorf("could not write response body: %w", err)
+		}
+	} else {
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("could not read response body: %w", err)
+		}
+
+		if err := w.Printf("%s\n", string(b)); err != nil {
+			return err
 		}
 	}
 
