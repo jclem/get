@@ -38,7 +38,7 @@ var ErrNoSession = errors.New("no session")
 // ReadSession reads a session from the configuration file for the given
 // request.
 func ReadSession(name string) (*Session, error) {
-	cfg, err := getConfiguration()
+	cfg, err := ReadConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func IsWritableHeader(h string) bool {
 // WriteSession writes a session to the configuration file for the given
 // request.
 func WriteSession(name string, req *http.Request) error {
-	cfg, err := getConfiguration()
+	cfg, err := ReadConfig()
 	if err != nil {
 		return err
 	}
@@ -83,19 +83,11 @@ func WriteSession(name string, req *http.Request) error {
 		}
 	}
 
-	b, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("could not marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(sessionsPath, b, 0o600); err != nil {
-		return fmt.Errorf("could not write sessions file: %w", err)
-	}
-
-	return nil
+	return WriteConfig(cfg)
 }
 
-func getConfiguration() (*Config, error) {
+// ReadConfig returns the configuration file.
+func ReadConfig() (*Config, error) {
 	// Create the config directory if it doesn't exist.
 	if _, err := os.Stat(configDir); err != nil {
 		if !os.IsNotExist(err) {
@@ -113,13 +105,9 @@ func getConfiguration() (*Config, error) {
 			return nil, fmt.Errorf("could not stat sessions file: %w", err)
 		}
 
-		b, err := json.Marshal(newConfig())
-		if err != nil {
-			return nil, fmt.Errorf("could not marshal config: %w", err)
-		}
-
-		if err := os.WriteFile(sessionsPath, b, 0o600); err != nil {
-			return nil, fmt.Errorf("could not create sessions file: %w", err)
+		cfg := newConfig()
+		if err := WriteConfig(&cfg); err != nil {
+			return nil, err
 		}
 	}
 
@@ -135,4 +123,18 @@ func getConfiguration() (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// WriteConfig writes the configuration file.
+func WriteConfig(cfg *Config) error {
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("could not marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(sessionsPath, b, 0o600); err != nil {
+		return fmt.Errorf("could not write sessions file: %w", err)
+	}
+
+	return nil
 }

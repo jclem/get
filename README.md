@@ -24,6 +24,7 @@ Usage:
 Available Commands:
   completion                        Generate the autocompletion script for the specified shell
   help                              Help about any command
+  session                           Manage sessions
 
 Flags:
   -d, --data string      Data to send in the request body
