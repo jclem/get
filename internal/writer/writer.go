@@ -3,12 +3,14 @@
 package writer
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/alecthomas/chroma/quick"
 	"github.com/fatih/color"
 )
 
@@ -29,7 +31,7 @@ func (w *Writer) Write(p []byte) (int, error) {
 }
 
 // PrintRequest prints information about an HTTP request.
-func (w *Writer) PrintRequest(req *http.Request) error {
+func (w *Writer) PrintRequest(req *http.Request, highlight bool) error {
 	path := req.URL.Path
 
 	if path == "" {
@@ -59,17 +61,28 @@ func (w *Writer) PrintRequest(req *http.Request) error {
 	}
 
 	if len(b) > 0 {
-		var j any
-		if err := json.Unmarshal(b, &j); err != nil {
-			return fmt.Errorf("could not unmarshal request body: %w", err)
+		bodyString := string(b)
+
+		if highlight {
+			var j any
+			if err := json.Unmarshal(b, &j); err != nil {
+				return fmt.Errorf("could not unmarshal request body: %w", err)
+			}
+
+			js, err := json.MarshalIndent(j, "", "  ")
+			if err != nil {
+				return fmt.Errorf("could not marshal request body: %w", err)
+			}
+
+			b := bytes.NewBuffer([]byte{})
+			if err := quick.Highlight(b, string(js), "json", "terminal", "monokai"); err != nil {
+				return fmt.Errorf("could not highlight request body: %w", err)
+			}
+
+			bodyString = b.String()
 		}
 
-		js, err := json.MarshalIndent(j, "", "  ")
-		if err != nil {
-			return fmt.Errorf("could not marshal request body: %w", err)
-		}
-
-		if err := w.Printf("\n%s\n", js); err != nil {
+		if err := w.Printf("\n%s\n", bodyString); err != nil {
 			return err
 		}
 	}

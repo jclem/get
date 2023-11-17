@@ -22,6 +22,7 @@ const flagMethod = "method"
 const flagVerbose = "verbose"
 const flagData = "data"
 const flagHTTP = "http"
+const flagNoHighlight = "no-highlight"
 
 var rootCmd = &cobra.Command{
 	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
@@ -145,8 +146,13 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not get verbose flag: %w", err)
 		}
 
+		noHighlight, err := cmd.Flags().GetBool(flagNoHighlight)
+		if err != nil {
+			return fmt.Errorf("could not get no-highlight flag: %w", err)
+		}
+
 		if verbose {
-			if err := out.PrintRequest(req); err != nil {
+			if err := out.PrintRequest(req, !noHighlight); err != nil {
 				return fmt.Errorf("could not print request: %w", err)
 			}
 		}
@@ -190,6 +196,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
 	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS")
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
+	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)
