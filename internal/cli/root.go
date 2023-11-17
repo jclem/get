@@ -45,9 +45,73 @@ const (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
+	Use:   "get <url> [request-options]",
 	Short: "Get is a command-line interface for making HTTP requests",
-	Args:  cobra.MinimumNArgs(1),
+	Long: `Get is a command-line interface for making HTTP requests.
+
+It accepts a URL and a list of request options, and makes an HTTP request to the
+specified URL. The request options can be used to specify headers, query
+parameters, and a request body.
+
+## Request Options
+
+### Headers
+
+HTTP headers are specified using Key:Value syntax. For example, to specify a
+header named "Accept" with a value of "application/json", you would use:
+
+    get example.com accept:application/json
+	
+Note that HTTP header names are canonicalized automatically, so "Accept" would
+be sent, in this case, not "accept".
+
+### Query Parameters
+
+Query parameters are specified using Key==Value syntax. For example, to specify
+a query parameter named "q" with a value of "foo", you would use:
+
+	get example.com q==foo
+
+### Request Body
+
+Request bodies can be specified using the format "<path>[:]=<value>". For example,
+to specify a request body of '{"foo":"bar"}', you would use:
+
+	get example.com foo=bar
+
+The value is parsed as a string, unless a colon is present, in which case the
+value is parsed as JSON. For example, to specify a request body of
+'{"foo": true}', you would use:
+
+	get example.com foo:=true
+
+Paths can be used to specify more complex request bodies, and they can be nested.
+
+	foo[bar]=baz // {"foo":{"bar":"baz"}} Sets an object value.
+	foo[]=bar    // {"foo":["bar"]} Pushes a value onto an array.
+	foo[1]=bar   // {"foo":[null,"bar"]} Sets a value at a specific index in an array.
+
+As a more complex example:
+
+	get example.com foo[bar][baz]=qux foo[quux][]:='{"corge":"grault"}' foo[quux][0][graply]=waldo
+
+Would result in the following request body:
+
+	{
+		"foo": {
+			"bar": {
+				"baz": "qux"
+			},
+			"quux": [
+				{
+					"corge": "grault",
+					"graply": "waldo"
+				}
+			]
+		}
+	}
+`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
 		var f flags
 		if err := viper.Unmarshal(&f); err != nil {
