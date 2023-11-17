@@ -13,35 +13,52 @@ import (
 	"github.com/jclem/get/internal/session"
 	"github.com/jclem/get/internal/writer"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
-const flagNoBody = "no-body"
-const flagNoHeaders = "no-headers"
-const flagNoSession = "no-session"
-const flagSession = "session"
-const flagMethod = "method"
-const flagVerbose = "verbose"
-const flagData = "data"
-const flagHTTP = "http"
-const flagNoHighlight = "no-highlight"
-const flagStream = "stream"
-const flagForm = "form"
+type flags struct {
+	NoBody         bool   `mapstructure:"no-body"`
+	NoHeaders      bool   `mapstructure:"no-headers"`
+	NoSession      bool   `mapstructure:"no-session"`
+	Session        string `mapstructure:"session"`
+	HTTPMethod     string `mapstructure:"method"`
+	Verbose        bool   `mapstructure:"verbose"`
+	Data           string `mapstructure:"data"`
+	UseHTTP        bool   `mapstructure:"http"`
+	NoHighlight    bool   `mapstructure:"no-highlight"`
+	StreamResponse bool   `mapstructure:"stream"`
+	FormBody       bool   `mapstructure:"form"`
+}
+
+const (
+	flagNoBody      = "no-body"
+	flagNoHeaders   = "no-headers"
+	flagNoSession   = "no-session"
+	flagSession     = "session"
+	flagMethod      = "method"
+	flagVerbose     = "verbose"
+	flagData        = "data"
+	flagHTTP        = "http"
+	flagNoHighlight = "no-highlight"
+	flagStream      = "stream"
+	flagForm        = "form"
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "get <url> [header:value] [queryParam==value] [bodyParam=value] [bodyParam:=rawValue]",
 	Short: "Get is a command-line interface for making HTTP requests",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
+		var f flags
+		if err := viper.Unmarshal(&f); err != nil {
+			return fmt.Errorf("could not unmarshal flags: %w", err)
+		}
+
 		out := writer.NewWriter(cmd.OutOrStdout())
 
 		reqURL := args[0]
 		if !strings.HasPrefix(reqURL, "https://") && !strings.HasPrefix(reqURL, "http://") {
-			useHTTP, err := cmd.Flags().GetBool(flagHTTP)
-			if err != nil {
-				return fmt.Errorf("could not get http flag: %w", err)
-			}
-
-			if useHTTP {
+			if f.UseHTTP {
 				reqURL = "http://" + reqURL
 			} else {
 				reqURL = "https://" + reqURL
@@ -53,27 +70,18 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not parse input: %w", err)
 		}
 
-		method, err := getMethod(cmd)
+		method, err := getMethod(f.HTTPMethod)
 		if err != nil {
 			return err
 		}
 
-		data, err := cmd.Flags().GetString(flagData)
-		if err != nil {
-			return fmt.Errorf("could not get data flag: %w", err)
-		}
-
+		data := f.Data
 		if data != "" && input.Body != nil {
 			return errors.New("cannot specify both data and body")
 		}
 
-		sendForm, err := cmd.Flags().GetBool(flagForm)
-		if err != nil {
-			return fmt.Errorf("could not get form flag: %w", err)
-		}
-
 		if input.Body != nil {
-			if sendForm {
+			if f.FormBody {
 				form := url.Values{}
 				m, ok := input.Body.(map[string]any)
 				if !ok {
@@ -114,13 +122,8 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("could not create request: %w", err)
 		}
 
-		sessionName, err := cmd.Flags().GetString(flagSession)
-		if err != nil {
-			return fmt.Errorf("could not get session flag: %w", err)
-		}
-
-		if sessionName == "" {
-			sessionName = req.URL.Host
+		if f.Session == "" {
+			f.Session = req.URL.Host
 		}
 
 		if input.Body != nil {
@@ -129,17 +132,12 @@ var rootCmd = &cobra.Command{
 			}
 
 			if req.Header.Get("content-type") == "" {
-				if sendForm {
+				if f.FormBody {
 					req.Header.Set("content-type", "application/x-www-form-urlencoded")
 				} else {
 					req.Header.Set("content-type", "application/json")
 				}
 			}
-		}
-
-		noSession, err := cmd.Flags().GetBool(flagNoSession)
-		if err != nil {
-			return fmt.Errorf("could not get no-session flag: %w", err)
 		}
 
 		for _, header := range input.Headers {
@@ -160,14 +158,14 @@ var rootCmd = &cobra.Command{
 		}
 		req.URL.RawQuery = query.Encode()
 
-		if !noSession && shouldWriteSession {
-			if err := session.WriteSession(sessionName, req); err != nil {
+		if !f.NoSession && shouldWriteSession {
+			if err := session.WriteSession(f.Session, req); err != nil {
 				return fmt.Errorf("could not write session: %w", err)
 			}
 		}
 
-		if !noSession {
-			ssn, err := session.ReadSession(sessionName)
+		if !f.NoBody {
+			ssn, err := session.ReadSession(f.Session)
 			if err != nil && !errors.Is(err, session.ErrNoSession) {
 				return fmt.Errorf("could not read session: %w", err)
 			}
@@ -181,18 +179,8 @@ var rootCmd = &cobra.Command{
 			}
 		}
 
-		verbose, err := cmd.Flags().GetBool(flagVerbose)
-		if err != nil {
-			return fmt.Errorf("could not get verbose flag: %w", err)
-		}
-
-		noHighlight, err := cmd.Flags().GetBool(flagNoHighlight)
-		if err != nil {
-			return fmt.Errorf("could not get no-highlight flag: %w", err)
-		}
-
-		if verbose {
-			if err := out.PrintRequest(req, writer.WithHighlight(!noHighlight)); err != nil {
+		if f.Verbose {
+			if err := out.PrintRequest(req, writer.WithHighlight(!f.NoHighlight)); err != nil {
 				return fmt.Errorf("could not print request: %w", err)
 			}
 		}
@@ -208,26 +196,11 @@ var rootCmd = &cobra.Command{
 			}
 		}()
 
-		noHeaders, err := cmd.Flags().GetBool(flagNoHeaders)
-		if err != nil {
-			return fmt.Errorf("could not get no-headers flag: %w", err)
-		}
-
-		noBody, err := cmd.Flags().GetBool(flagNoBody)
-		if err != nil {
-			return fmt.Errorf("could not get no-body flag: %w", err)
-		}
-
-		stream, err := cmd.Flags().GetBool(flagStream)
-		if err != nil {
-			return fmt.Errorf("could not get stream flag: %w", err)
-		}
-
 		if err := out.PrintResponse(resp,
-			writer.WithHeaders(!noHeaders),
-			writer.WithBody(!noBody),
-			writer.WithHighlight(!noHighlight),
-			writer.WithStream(stream),
+			writer.WithHeaders(!f.NoHeaders),
+			writer.WithBody(!f.NoBody),
+			writer.WithHighlight(!f.NoHighlight),
+			writer.WithStream(f.StreamResponse),
 		); err != nil {
 			return fmt.Errorf("could not print response: %w", err)
 		}
@@ -250,6 +223,10 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 
+	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
+		return fmt.Errorf("could not bind flags: %w", err)
+	}
+
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		return fmt.Errorf("could not execute root command: %w", err)
 	}
@@ -269,12 +246,7 @@ func newUnknownMethodError(method string) error {
 	return &unknownMethodError{Method: method}
 }
 
-func getMethod(cmd *cobra.Command) (string, error) {
-	method, err := cmd.Flags().GetString(flagMethod)
-	if err != nil {
-		return "", fmt.Errorf("could not get method flag: %w", err)
-	}
-
+func getMethod(method string) (string, error) {
 	method = strings.ToUpper(method)
 
 	switch method {
