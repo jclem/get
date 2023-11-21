@@ -1,7 +1,10 @@
 .PHONY: ci check test
 
-tmp/get: main.go internal/**/*.go
+tmp/get: main.go $(find internal -type f)
 	go build -o ./tmp/get .
+
+/usr/local/bin/get: tmp/get
+	sudo cp ./tmp/get /usr/local/bin/get
 
 ci: check test
 
