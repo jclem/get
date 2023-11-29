@@ -228,6 +228,20 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
 			return fmt.Errorf("could not read response body: %w", err)
 		}
 
+		if mimeType == "application/json" {
+			var j any
+			if err := json.Unmarshal(b, &j); err != nil {
+				return fmt.Errorf("could not unmarshal response body: %w", err)
+			}
+
+			js, err := json.MarshalIndent(j, "", "  ")
+			if err != nil {
+				return fmt.Errorf("could not marshal response body: %w", err)
+			}
+
+			b = js
+		}
+
 		it, err := lexer.Tokenise(nil, string(b))
 		if err != nil {
 			return fmt.Errorf("could not tokenise response body: %w", err)
