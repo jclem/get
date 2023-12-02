@@ -63,9 +63,15 @@ func IsWritableHeader(h string) bool {
 	return ok
 }
 
+// WriteSessionOpts are options for writing a session.
+type WriteSessionOpts struct {
+	// SaveAllHeaders specifies whether or not all headers should be saved.
+	SaveAllHeaders bool
+}
+
 // WriteSession writes a session to the configuration file for the given
 // request.
-func WriteSession(name string, req *http.Request) error {
+func WriteSession(name string, req *http.Request, opts WriteSessionOpts) error {
 	cfg, err := ReadConfig()
 	if err != nil {
 		return err
@@ -78,7 +84,7 @@ func WriteSession(name string, req *http.Request) error {
 	}
 
 	for k, v := range req.Header {
-		if IsWritableHeader(k) {
+		if IsWritableHeader(k) || opts.SaveAllHeaders {
 			sess.Headers[k] = v
 		}
 	}

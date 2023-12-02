@@ -28,20 +28,22 @@ type flags struct {
 	NoHighlight    bool   `mapstructure:"no-highlight"`
 	StreamResponse bool   `mapstructure:"stream"`
 	FormBody       bool   `mapstructure:"form"`
+	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
 }
 
 const (
-	flagNoBody      = "no-body"
-	flagNoHeaders   = "no-headers"
-	flagNoSession   = "no-session"
-	flagSession     = "session"
-	flagMethod      = "method"
-	flagVerbose     = "verbose"
-	flagData        = "data"
-	flagHTTP        = "http"
-	flagNoHighlight = "no-highlight"
-	flagStream      = "stream"
-	flagForm        = "form"
+	flagNoBody         = "no-body"
+	flagNoHeaders      = "no-headers"
+	flagNoSession      = "no-session"
+	flagSession        = "session"
+	flagMethod         = "method"
+	flagVerbose        = "verbose"
+	flagData           = "data"
+	flagHTTP           = "http"
+	flagNoHighlight    = "no-highlight"
+	flagStream         = "stream"
+	flagForm           = "form"
+	flagSaveAllHeaders = "save-all-headers"
 )
 
 var rootCmd = &cobra.Command{
@@ -210,7 +212,7 @@ Would result in the following request body:
 
 		var shouldWriteSession bool
 		for _, header := range input.Headers {
-			if session.IsWritableHeader(header.Name) {
+			if session.IsWritableHeader(header.Name) || f.SaveAllHeaders {
 				shouldWriteSession = true
 				break
 			}
@@ -223,7 +225,7 @@ Would result in the following request body:
 		req.URL.RawQuery = query.Encode()
 
 		if !f.NoSession && shouldWriteSession {
-			if err := session.WriteSession(f.Session, req); err != nil {
+			if err := session.WriteSession(f.Session, req, session.WriteSessionOpts{SaveAllHeaders: f.SaveAllHeaders}); err != nil {
 				return fmt.Errorf("could not write session: %w", err)
 			}
 		}
@@ -286,6 +288,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
+	rootCmd.Flags().Bool(flagSaveAllHeaders, false, "Save all request headers to the session")
 
 	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
 		return fmt.Errorf("could not bind flags: %w", err)
