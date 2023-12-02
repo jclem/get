@@ -228,7 +228,7 @@ Would result in the following request body:
 			}
 		}
 
-		if !f.NoBody {
+		if !f.NoSession {
 			ssn, err := session.ReadSession(f.Session)
 			if err != nil && !errors.Is(err, session.ErrNoSession) {
 				return fmt.Errorf("could not read session: %w", err)
