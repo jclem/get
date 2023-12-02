@@ -1,6 +1,6 @@
 .PHONY: ci check test
 
-tmp/get: main.go $(find internal -type f)
+tmp/get: main.go $(wildcard internal/**/*.go)
 	go build -o ./tmp/get .
 
 /usr/local/bin/get: tmp/get

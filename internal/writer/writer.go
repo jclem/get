@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -201,16 +202,29 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
 
 	if o.highlight && !o.stream { //nolint:nestif
 		ct := resp.Header.Get("content-type")
-		parts := strings.Split(ct, ";")
 
-		mimeType := "application/octet-stream"
-		if len(parts) > 0 {
-			mimeType = parts[0]
+		mimeType, _, err := mime.ParseMediaType(ct)
+		if err != nil {
+			return fmt.Errorf("could not parse content-type: %w", err)
+		}
+
+		isJSON := mimeType == "application/json" || strings.HasSuffix(mimeType, "+json")
+
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("could not read response body: %w", err)
 		}
 
 		lexer := lexers.MatchMimeType(mimeType)
 		if lexer == nil {
-			lexer = lexers.Fallback
+			if isJSON {
+				lexer = lexers.Get("json")
+			} else {
+				lexer = lexers.Analyse(string(b))
+				if lexer == nil {
+					lexer = lexers.Fallback
+				}
+			}
 		}
 
 		style := styles.Get("monokai")
@@ -223,12 +237,7 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
 			return errors.New("could not get formatter")
 		}
 
-		b, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("could not read response body: %w", err)
-		}
-
-		if mimeType == "application/json" {
+		if isJSON {
 			var j any
 			if err := json.Unmarshal(b, &j); err != nil {
 				return fmt.Errorf("could not unmarshal response body: %w", err)
