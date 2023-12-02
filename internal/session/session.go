@@ -14,6 +14,11 @@ var configHome = os.Getenv("XDG_DATA_HOME")
 var configDir = path.Join(configHome, "get")
 var sessionsPath = path.Join(configDir, "sessions.json")
 
+// SessionsPath returns the path to the sessions configuration file.
+func SessionsPath() string {
+	return sessionsPath
+}
+
 // A Config represents the overall configuration file that stores all sessions.
 type Config struct {
 	Sessions map[string]Session `json:"sessions"`
