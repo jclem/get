@@ -138,7 +138,7 @@ func ReadConfig() (*Config, error) {
 
 // WriteConfig writes the configuration file.
 func WriteConfig(cfg *Config) error {
-	b, err := json.Marshal(cfg)
+	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not marshal config: %w", err)
 	}
