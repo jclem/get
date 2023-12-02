@@ -91,18 +91,19 @@ Available Commands:
   session                           Manage sessions
 
 Flags:
-  -d, --data string      Data to send in the request body
-      --form             Send input as form data instead of JSON
-  -h, --help             help for get
-      --http             Use HTTP instead of HTTPS
-  -X, --method string    HTTP method to use (default "GET")
-  -B, --no-body          Do not print the response body
-  -H, --no-headers       Do not print the response headers
-      --no-highlight     Do not format or highlight input or output
-  -S, --no-session       Do not use a stored session if one exists for this host
-  -s, --session string   Session name to use (defaults to URL host)
-  -t, --stream           Stream the response body (implies --no-highlight of output)
-  -v, --verbose          Print verbose output
+  -d, --data string        Data to send in the request body
+      --form               Send input as form data instead of JSON
+  -h, --help               help for get
+      --http               Use HTTP instead of HTTPS
+  -X, --method string      HTTP method to use (default "GET")
+  -B, --no-body            Do not print the response body
+  -H, --no-headers         Do not print the response headers
+      --no-highlight       Do not format or highlight input or output
+  -S, --no-session         Do not use a stored session if one exists for this host
+      --save-all-headers   Save all request headers to the session
+  -s, --session string     Session name to use (defaults to URL host)
+  -t, --stream             Stream the response body (implies --no-highlight of output)
+  -v, --verbose            Print verbose output
 
 Use "get [command] --help" for more information about a command.
 ```
