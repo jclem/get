@@ -230,7 +230,7 @@ Would result in the following request body:
 		}
 
 		for _, header := range input.Headers {
-			req.Header.Add(header.Name, header.Value)
+			req.Header.Set(header.Name, header.Value)
 		}
 
 		shouldWriteSession := f.UseHTTP // Write the session if the user specified non-default protocol.
