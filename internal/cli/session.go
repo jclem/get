@@ -168,7 +168,7 @@ var sessionEditCmd = &cobra.Command{
 			return errors.New("no $EDITOR set")
 		}
 
-		c := exec.CommandContext(cmd.Context(), editor, path) //nolint:gosec
+		c := exec.CommandContext(cmd.Context(), editor, path)
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		if err := c.Run(); err != nil {

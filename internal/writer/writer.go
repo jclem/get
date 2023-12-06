@@ -179,7 +179,7 @@ func WithBody(b bool) PrintOpt {
 }
 
 // PrintResponse prints information about an HTTP response.
-func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error {
+func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error { //nolint:cyclop
 	o := newPrintOpts(opts)
 
 	if o.headers {

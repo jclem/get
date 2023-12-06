@@ -20,7 +20,7 @@ type flags struct {
 	NoBody         bool   `mapstructure:"no-body"`
 	NoHeaders      bool   `mapstructure:"no-headers"`
 	NoSession      bool   `mapstructure:"no-session"`
-	Session        string `mapstructure:"session"`
+	SessionName    string `mapstructure:"session"`
 	HTTPMethod     string `mapstructure:"method"`
 	Verbose        bool   `mapstructure:"verbose"`
 	Data           string `mapstructure:"data"`
@@ -117,89 +117,58 @@ Would result in the following request body:
 `,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {
-		var f flags
-		if err := viper.Unmarshal(&f); err != nil {
-			return fmt.Errorf("could not unmarshal flags: %w", err)
-		}
-
-		if f.UseHTTP && f.UseHTTPS {
-			return errors.New("cannot specify both --http and --https")
-		}
-
-		out := writer.NewWriter(cmd.OutOrStdout())
-
-		urlArg := args[0]
-		if !strings.HasPrefix(urlArg, "https://") && !strings.HasPrefix(urlArg, "http://") {
-			if f.UseHTTP {
-				urlArg = "http://" + urlArg
-			} else {
-				urlArg = "https://" + urlArg
-			}
-		}
-
-		reqURL, err := url.Parse(urlArg)
+		// Read our request configuration flags.
+		f, err := loadAndValidateFlags()
 		if err != nil {
-			return fmt.Errorf("could not parse URL: %w", err)
+			return err
 		}
 
-		if f.Session == "" {
-			f.Session = reqURL.Host
+		// First, do some basic URL parsing.
+		userProvidedScheme := strings.HasPrefix(args[0], "http://") || strings.HasPrefix(args[0], "https://")
+		reqURL, err := getBaseURL(args[0])
+		if err != nil {
+			return err
 		}
 
-		var ssn *session.Session
-		if !f.NoSession {
-			ssn, err = session.ReadSession(f.Session)
-			if err != nil && !errors.Is(err, session.ErrNoSession) {
-				return fmt.Errorf("could not read session: %w", err)
-			}
+		// Load the session, or use an empty one.
+		ssn, err := loadSession(f, reqURL)
+		if err != nil {
+			return err
+		}
 
-			if ssn != nil && ssn.Scheme != "" && !f.UseHTTP && !f.UseHTTPS {
+		// Set our URL scheme, if the user didn't provide one, using flags or
+		// the session.
+		if !userProvidedScheme {
+			if f.UseHTTP {
+				reqURL.Scheme = "http"
+			} else if f.UseHTTPS {
+				reqURL.Scheme = "https"
+			} else if ssn.Scheme != "" {
 				reqURL.Scheme = ssn.Scheme
+			} else {
+				reqURL.Scheme = "https"
 			}
 		}
 
+		// Load and parse our non-flag inputs.
 		input, err := parser.ParseInput(args[1:])
 		if err != nil {
 			return fmt.Errorf("could not parse input: %w", err)
 		}
 
-		method, err := getMethod(f.HTTPMethod)
-		if err != nil {
-			return err
-		}
-
+		// Validate that we don't have both input data and a data flag.
 		data := f.Data
 		if data != "" && input.Body != nil {
 			return errors.New("cannot specify both data and body")
 		}
 
+		// If given input body, marshal it as JSON or form data.
 		if input.Body != nil {
 			if f.FormBody {
-				form := url.Values{}
-				m, ok := input.Body.(map[string]any)
-				if !ok {
-					return errors.New("form body must be an object")
+				data, err = marshalFormBody(input.Body)
+				if err != nil {
+					return err
 				}
-
-				for k, v := range m {
-					switch vs := v.(type) {
-					case string:
-						form.Add(k, vs)
-					case []any:
-						for _, v := range vs {
-							vs, ok := v.(string)
-							if !ok {
-								return errors.New("form body values must be string or string arrays")
-							}
-
-							form.Add(k, vs)
-						}
-					default:
-						return errors.New("form body values must be string or string arrays")
-					}
-				}
-
-				data = form.Encode()
 			} else {
 				b, err := json.Marshal(input.Body)
 				if err != nil {
@@ -210,63 +179,62 @@ Would result in the following request body:
 			}
 		}
 
+		// Get our HTTP method (or default).
+		method, err := getMethod(f.HTTPMethod, cmd.Flags().Changed(flagMethod), data != "")
+		if err != nil {
+			return err
+		}
+
+		// Create our request.
 		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL.String(), strings.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("could not create request: %w", err)
 		}
 
-		if input.Body != nil {
-			if !cmd.Flags().Changed(flagMethod) {
-				req.Method = http.MethodPost
-			}
-
-			if req.Header.Get("content-type") == "" {
-				if f.FormBody {
-					req.Header.Set("content-type", "application/x-www-form-urlencoded")
-				} else {
-					req.Header.Set("content-type", "application/json")
-				}
+		// First, set any headers from the session.
+		for k, v := range ssn.Headers {
+			for _, v := range v {
+				req.Header.Set(k, v)
 			}
 		}
 
+		// Then, overwrite using any headers from the input.
 		for _, header := range input.Headers {
 			req.Header.Set(header.Name, header.Value)
 		}
 
-		shouldWriteSession := f.UseHTTP // Write the session if the user specified non-default protocol.
-		for _, header := range input.Headers {
-			if session.IsWritableHeader(header.Name) || f.SaveAllHeaders {
-				shouldWriteSession = true
-				break
+		// Set content-type if it's not set and we have data.
+		if req.Header.Get("content-type") == "" && data != "" {
+			if f.FormBody {
+				req.Header.Set("content-type", "application/x-www-form-urlencoded")
+			} else {
+				req.Header.Set("content-type", "application/json")
 			}
 		}
 
+		// Set the host header if it's not set.
+		if req.Header.Get("host") == "" {
+			req.Header.Set("host", reqURL.Host)
+		}
+
+		// Set our query parameters.
 		query := req.URL.Query()
 		for _, qp := range input.QueryParams {
 			query.Add(qp.Name, qp.Value)
 		}
 		req.URL.RawQuery = query.Encode()
 
-		if !f.NoSession && shouldWriteSession {
-			if err := session.WriteSession(f.Session, req, session.WriteSessionOpts{SaveAllHeaders: f.SaveAllHeaders}); err != nil {
-				return fmt.Errorf("could not write session: %w", err)
-			}
-		}
+		// Create a request/response writer struct.
+		out := writer.NewWriter(cmd.OutOrStdout())
 
-		if !f.NoSession && ssn != nil {
-			for k, v := range ssn.Headers {
-				for _, v := range v {
-					req.Header.Set(k, v)
-				}
-			}
-		}
-
+		// Print our request, if we need to.
 		if f.Verbose {
 			if err := out.PrintRequest(req, writer.WithHighlight(!f.NoHighlight)); err != nil {
 				return fmt.Errorf("could not print request: %w", err)
 			}
 		}
 
+		// Make our request.
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("could not make request: %w", err)
@@ -278,6 +246,7 @@ Would result in the following request body:
 			}
 		}()
 
+		// Print our response.
 		if err := out.PrintResponse(resp,
 			writer.WithHeaders(!f.NoHeaders),
 			writer.WithBody(!f.NoBody),
@@ -285,6 +254,21 @@ Would result in the following request body:
 			writer.WithStream(f.StreamResponse),
 		); err != nil {
 			return fmt.Errorf("could not print response: %w", err)
+		}
+
+		// Lastly, write the session if we need to.
+		shouldWriteSession := f.UseHTTP // Write the session if the user specified non-default protocol.
+		for _, header := range input.Headers {
+			if session.IsWritableHeader(header.Name) || f.SaveAllHeaders {
+				shouldWriteSession = true
+				break
+			}
+		}
+
+		if !f.NoSession && shouldWriteSession {
+			if err := session.WriteSession(f.SessionName, req, session.WriteSessionOpts{SaveAllHeaders: f.SaveAllHeaders}); err != nil {
+				return fmt.Errorf("could not write session: %w", err)
+			}
 		}
 
 		return nil
@@ -330,8 +314,12 @@ func newUnknownMethodError(method string) error {
 	return &unknownMethodError{Method: method}
 }
 
-func getMethod(method string) (string, error) {
+func getMethod(method string, methodChanged bool, hasData bool) (string, error) {
 	method = strings.ToUpper(method)
+
+	if !methodChanged && hasData {
+		method = http.MethodPost
+	}
 
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
@@ -339,4 +327,80 @@ func getMethod(method string) (string, error) {
 	default:
 		return "", newUnknownMethodError(method)
 	}
+}
+
+func loadAndValidateFlags() (*flags, error) {
+	var f flags
+	if err := viper.Unmarshal(&f); err != nil {
+		return nil, fmt.Errorf("could not unmarshal flags: %w", err)
+	}
+
+	if f.UseHTTP && f.UseHTTPS {
+		return nil, errors.New("cannot specify both --http and --https")
+	}
+
+	return &f, nil
+}
+
+func loadSession(f *flags, reqURL *url.URL) (*session.Session, error) {
+	ssn := session.NewSession()
+	if !f.NoSession {
+		if f.SessionName == "" {
+			f.SessionName = reqURL.Host
+		}
+
+		readSSN, err := session.ReadSession(f.SessionName)
+		if err != nil && !errors.Is(err, session.ErrNoSession) {
+			return nil, fmt.Errorf("could not read session: %w", err)
+		}
+		ssn = readSSN
+	}
+
+	return ssn, nil
+}
+
+func getBaseURL(input string) (*url.URL, error) {
+	urlArg := input
+	userProvidedScheme := strings.HasPrefix(urlArg, "https://") || strings.HasPrefix(urlArg, "http://")
+
+	if !userProvidedScheme {
+		// We'll set the real scheme later, but we need to set something here so
+		// that we can parse out the hostname.
+		urlArg = "https://" + urlArg
+	}
+
+	reqURL, err := url.Parse(urlArg)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse URL: %w", err)
+	}
+
+	return reqURL, nil
+}
+
+func marshalFormBody(input any) (string, error) {
+	form := url.Values{}
+	m, ok := input.(map[string]any)
+	if !ok {
+		return "", errors.New("form body must be an object")
+	}
+
+	for k, v := range m {
+		switch vs := v.(type) {
+		case string:
+			form.Add(k, vs)
+		case []any:
+			for _, v := range vs {
+				vs, ok := v.(string)
+				if !ok {
+					return "", errors.New("form body values must be string or string arrays")
+				}
+
+				form.Add(k, vs)
+			}
+		default:
+			return "", errors.New("form body values must be string or string arrays")
+		}
+	}
+
+	return form.Encode(), nil
 }

@@ -34,8 +34,9 @@ type Session struct {
 	Scheme  string              `json:"scheme"`
 }
 
-func newSession() Session {
-	return Session{Headers: make(map[string][]string)}
+// NewSession returns a new empty session.
+func NewSession() *Session {
+	return &Session{Headers: make(map[string][]string)}
 }
 
 // ErrNoSession is returned when a session does not exist for a given host.
@@ -43,6 +44,8 @@ var ErrNoSession = errors.New("no session")
 
 // ReadSession reads a session from the configuration file for the given
 // request.
+//
+// When no session is found an empty session and ErrNoSession are returned.
 func ReadSession(name string) (*Session, error) {
 	cfg, err := ReadConfig()
 	if err != nil {
@@ -51,7 +54,7 @@ func ReadSession(name string) (*Session, error) {
 
 	ssn, ok := cfg.Sessions[name]
 	if !ok {
-		return nil, ErrNoSession
+		return NewSession(), ErrNoSession
 	}
 
 	return &ssn, nil
@@ -85,7 +88,7 @@ func WriteSession(name string, req *http.Request, opts WriteSessionOpts) error {
 
 	sess, ok := cfg.Sessions[name]
 	if !ok {
-		sess = newSession()
+		sess = *NewSession()
 		cfg.Sessions[name] = sess
 	}
 
@@ -130,7 +133,7 @@ func ReadConfig() (*Config, error) {
 	}
 
 	// Read the file.
-	b, err := os.ReadFile(sessionsPath) //nolint:gosec
+	b, err := os.ReadFile(sessionsPath)
 	if err != nil {
 		return nil, fmt.Errorf("could not read sessions file: %w", err)
 	}
