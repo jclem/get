@@ -153,7 +153,7 @@ Would result in the following request body:
 				return fmt.Errorf("could not read session: %w", err)
 			}
 
-			if ssn.Scheme != "" && !f.UseHTTP && !f.UseHTTPS {
+			if ssn != nil && ssn.Scheme != "" && !f.UseHTTP && !f.UseHTTPS {
 				reqURL.Scheme = ssn.Scheme
 			}
 		}
