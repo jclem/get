@@ -31,6 +31,7 @@ func newConfig() Config {
 // A Session represents a single session configuration.
 type Session struct {
 	Headers map[string][]string `json:"headers"`
+	Scheme  string              `json:"scheme"`
 }
 
 func newSession() Session {
@@ -93,6 +94,12 @@ func WriteSession(name string, req *http.Request, opts WriteSessionOpts) error {
 			sess.Headers[k] = v
 		}
 	}
+
+	if req.URL.Scheme == "http" {
+		sess.Scheme = "http"
+	}
+
+	cfg.Sessions[name] = sess
 
 	return WriteConfig(cfg)
 }

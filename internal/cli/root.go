@@ -25,6 +25,7 @@ type flags struct {
 	Verbose        bool   `mapstructure:"verbose"`
 	Data           string `mapstructure:"data"`
 	UseHTTP        bool   `mapstructure:"http"`
+	UseHTTPS       bool   `mapstructure:"https"`
 	NoHighlight    bool   `mapstructure:"no-highlight"`
 	StreamResponse bool   `mapstructure:"stream"`
 	FormBody       bool   `mapstructure:"form"`
@@ -40,6 +41,7 @@ const (
 	flagVerbose        = "verbose"
 	flagData           = "data"
 	flagHTTP           = "http"
+	flagHTTPS          = "https"
 	flagNoHighlight    = "no-highlight"
 	flagStream         = "stream"
 	flagForm           = "form"
@@ -120,14 +122,39 @@ Would result in the following request body:
 			return fmt.Errorf("could not unmarshal flags: %w", err)
 		}
 
+		if f.UseHTTP && f.UseHTTPS {
+			return errors.New("cannot specify both --http and --https")
+		}
+
 		out := writer.NewWriter(cmd.OutOrStdout())
 
-		reqURL := args[0]
-		if !strings.HasPrefix(reqURL, "https://") && !strings.HasPrefix(reqURL, "http://") {
+		urlArg := args[0]
+		if !strings.HasPrefix(urlArg, "https://") && !strings.HasPrefix(urlArg, "http://") {
 			if f.UseHTTP {
-				reqURL = "http://" + reqURL
+				urlArg = "http://" + urlArg
 			} else {
-				reqURL = "https://" + reqURL
+				urlArg = "https://" + urlArg
+			}
+		}
+
+		reqURL, err := url.Parse(urlArg)
+		if err != nil {
+			return fmt.Errorf("could not parse URL: %w", err)
+		}
+
+		if f.Session == "" {
+			f.Session = reqURL.Host
+		}
+
+		var ssn *session.Session
+		if !f.NoSession {
+			ssn, err = session.ReadSession(f.Session)
+			if err != nil && !errors.Is(err, session.ErrNoSession) {
+				return fmt.Errorf("could not read session: %w", err)
+			}
+
+			if ssn.Scheme != "" && !f.UseHTTP && !f.UseHTTPS {
+				reqURL.Scheme = ssn.Scheme
 			}
 		}
 
@@ -183,13 +210,9 @@ Would result in the following request body:
 			}
 		}
 
-		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL, strings.NewReader(data))
+		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL.String(), strings.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("could not create request: %w", err)
-		}
-
-		if f.Session == "" {
-			f.Session = req.URL.Host
 		}
 
 		if input.Body != nil {
@@ -210,7 +233,7 @@ Would result in the following request body:
 			req.Header.Add(header.Name, header.Value)
 		}
 
-		var shouldWriteSession bool
+		shouldWriteSession := f.UseHTTP // Write the session if the user specified non-default protocol.
 		for _, header := range input.Headers {
 			if session.IsWritableHeader(header.Name) || f.SaveAllHeaders {
 				shouldWriteSession = true
@@ -230,17 +253,10 @@ Would result in the following request body:
 			}
 		}
 
-		if !f.NoSession {
-			ssn, err := session.ReadSession(f.Session)
-			if err != nil && !errors.Is(err, session.ErrNoSession) {
-				return fmt.Errorf("could not read session: %w", err)
-			}
-
-			if ssn != nil {
-				for k, v := range ssn.Headers {
-					for _, v := range v {
-						req.Header.Set(k, v)
-					}
+		if !f.NoSession && ssn != nil {
+			for k, v := range ssn.Headers {
+				for _, v := range v {
+					req.Header.Set(k, v)
 				}
 			}
 		}
@@ -283,7 +299,8 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
-	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS")
+	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS, regardless of session configuration")
+	rootCmd.Flags().Bool(flagHTTPS, false, "Use HTTPS instead of HTTP, regardless of session configuration")
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
 	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
