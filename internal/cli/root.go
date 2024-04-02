@@ -9,11 +9,13 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jclem/get/internal/config"
 	"github.com/jclem/get/internal/parser"
 	"github.com/jclem/get/internal/session"
 	"github.com/jclem/get/internal/writer"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/exp/slices"
 )
 
 type flags struct {
@@ -123,11 +125,21 @@ Would result in the following request body:
 			return err
 		}
 
+		// Read our config file.
+		cfg, err := config.Read()
+		if err != nil {
+			return fmt.Errorf("could not read config: %w", err)
+		}
+
 		// First, do some basic URL parsing.
 		userProvidedScheme := strings.HasPrefix(args[0], "http://") || strings.HasPrefix(args[0], "https://")
 		reqURL, err := getBaseURL(args[0])
 		if err != nil {
 			return err
+		}
+
+		if reqURL.Hostname() == "" {
+			reqURL.Host = fmt.Sprintf("%s:%s", cfg.FallbackHostname, reqURL.Port())
 		}
 
 		// Load the session, or use an empty one.
@@ -145,6 +157,8 @@ Would result in the following request body:
 				reqURL.Scheme = "https"
 			} else if ssn.Scheme != "" {
 				reqURL.Scheme = ssn.Scheme
+			} else if slices.Contains(cfg.HTTPHostnames, reqURL.Hostname()) {
+				reqURL.Scheme = "http"
 			} else {
 				reqURL.Scheme = "https"
 			}
