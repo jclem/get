@@ -27,11 +27,16 @@ func newConfig() Config {
 }
 
 // Read returns the configuration file.
-func Read() (*Config, error) {
+func Read(path string) (*Config, error) {
+	readFrom := path
+	if readFrom == "" {
+		readFrom = configPath
+	}
+
 	// Read the file.
-	b, err := os.ReadFile(configPath)
+	b, err := os.ReadFile(readFrom)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if path == "" && errors.Is(err, os.ErrNotExist) {
 			cfg := newConfig()
 			return &cfg, nil
 		}

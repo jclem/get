@@ -19,6 +19,7 @@ import (
 )
 
 type flags struct {
+	ConfigPath     string `mapstructure:"config"`
 	NoBody         bool   `mapstructure:"no-body"`
 	NoHeaders      bool   `mapstructure:"no-headers"`
 	NoSession      bool   `mapstructure:"no-session"`
@@ -35,6 +36,7 @@ type flags struct {
 }
 
 const (
+	flagConfig         = "config"
 	flagNoBody         = "no-body"
 	flagNoHeaders      = "no-headers"
 	flagNoSession      = "no-session"
@@ -127,7 +129,7 @@ Would result in the following request body:
 		}
 
 		// Read our config file.
-		cfg, err := config.Read()
+		cfg, err := config.Read(f.ConfigPath)
 		if err != nil {
 			return fmt.Errorf("could not read config: %w", err)
 		}
@@ -292,6 +294,7 @@ Would result in the following request body:
 
 // Execute runs the root command.
 func Execute(ctx context.Context) error {
+	rootCmd.Flags().String(flagConfig, "", "Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)")
 	rootCmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
 	rootCmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
 	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
