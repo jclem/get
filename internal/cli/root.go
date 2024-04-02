@@ -119,6 +119,16 @@ Would result in the following request body:
 			]
 		}
 	}
+
+## Configuration
+
+Get can be configured using the configuration file located by default at
+$XDG_CONFIG_PATH/get/config.json.
+
+- fallback_hostname: The hostname to use when no hostname is specified (for
+	example, if the host is simply ":3000").
+- http_hostnames: A list of hostnames that are considered HTTP hostnames. By
+	default, these hosts will use HTTP unless otherwise noted by flag or session.
 `,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (err error) {

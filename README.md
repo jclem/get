@@ -91,10 +91,12 @@ Available Commands:
   session                           Manage sessions
 
 Flags:
+      --config string      Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)
   -d, --data string        Data to send in the request body
       --form               Send input as form data instead of JSON
   -h, --help               help for get
-      --http               Use HTTP instead of HTTPS
+      --http               Use HTTP instead of HTTPS, regardless of session configuration
+      --https              Use HTTPS instead of HTTP, regardless of session configuration
   -X, --method string      HTTP method to use (default "GET")
   -B, --no-body            Do not print the response body
   -H, --no-headers         Do not print the response headers
@@ -107,3 +109,13 @@ Flags:
 
 Use "get [command] --help" for more information about a command.
 ```
+
+## Configuration
+
+Get can be configured using the configuration file located by default at
+$XDG_CONFIG_PATH/get/config.json.
+
+- fallback_hostname: The hostname to use when no hostname is specified (for
+	example, if the host is simply ":3000").
+- http_hostnames: A list of hostnames that are considered HTTP hostnames. By
+	default, these hosts will use HTTP unless otherwise noted by flag or session.
