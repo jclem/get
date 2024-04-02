@@ -3,13 +3,13 @@ package main
 
 import (
 	"context"
-	"log"
+	"os"
 
 	"github.com/jclem/get/internal/cli"
 )
 
 func main() {
 	if err := cli.Execute(context.Background()); err != nil {
-		log.Fatal(err)
+		os.Exit(1)
 	}
 }

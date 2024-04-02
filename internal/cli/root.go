@@ -51,8 +51,9 @@ const (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "get <url> [request-options]",
-	Short: "Get is a command-line interface for making HTTP requests",
+	Use:          "get <url> [request-options]",
+	SilenceUsage: true,
+	Short:        "Get is a command-line interface for making HTTP requests",
 	Long: `Get is a command-line interface for making HTTP requests.
 
 It accepts a URL and a list of request options, and makes an HTTP request to the
