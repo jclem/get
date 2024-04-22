@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,6 +30,7 @@ type flags struct {
 	Data           string `mapstructure:"data"`
 	UseHTTP        bool   `mapstructure:"http"`
 	UseHTTPS       bool   `mapstructure:"https"`
+	UseUnix        bool   `mapstructure:"unix"`
 	NoHighlight    bool   `mapstructure:"no-highlight"`
 	StreamResponse bool   `mapstructure:"stream"`
 	FormBody       bool   `mapstructure:"form"`
@@ -46,6 +48,7 @@ const (
 	flagData           = "data"
 	flagHTTP           = "http"
 	flagHTTPS          = "https"
+	flagUnix           = "unix"
 	flagNoHighlight    = "no-highlight"
 	flagStream         = "stream"
 	flagForm           = "form"
@@ -261,8 +264,35 @@ $XDG_CONFIG_PATH/get/config.json.
 			}
 		}
 
+		var httpc *http.Client
+		if f.UseUnix {
+			// Example path /path/to/sock.sock/request/path
+			// Address: /path/to/sock.sock
+			// Path: /request/path
+			sockIdx := strings.Index(req.URL.Path, ".sock")
+			if sockIdx == -1 {
+				return fmt.Errorf("could not find .sock in URL path: %s", req.URL.Path)
+			}
+			addr := req.URL.Path[:sockIdx+5]
+			req.URL.Path = req.URL.Path[sockIdx+5:]
+			httpc = &http.Client{
+				Transport: &http.Transport{
+					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+						conn, err := net.Dial("unix", addr)
+						if err != nil {
+							return nil, fmt.Errorf("could not dial Unix socket: %w", err)
+						}
+
+						return conn, nil
+					},
+				},
+			}
+		} else {
+			httpc = http.DefaultClient
+		}
+
 		// Make our request.
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpc.Do(req)
 		if err != nil {
 			return fmt.Errorf("could not make request: %w", err)
 		}
@@ -318,6 +348,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 	rootCmd.Flags().Bool(flagSaveAllHeaders, false, "Save all request headers to the session")
+	rootCmd.Flags().BoolP(flagUnix, "u", false, "Use a Unix socket instead of a network connection")
 
 	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
 		return fmt.Errorf("could not bind flags: %w", err)
@@ -365,6 +396,10 @@ func loadAndValidateFlags() (*flags, error) {
 
 	if f.UseHTTP && f.UseHTTPS {
 		return nil, errors.New("cannot specify both --http and --https")
+	}
+
+	if f.UseUnix && (f.UseHTTP || f.UseHTTPS) {
+		return nil, errors.New("cannot specify both --unix and --http or --https")
 	}
 
 	return &f, nil
