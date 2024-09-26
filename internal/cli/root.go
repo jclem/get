@@ -33,7 +33,7 @@ type flags struct {
 	UseHTTP        bool   `mapstructure:"http"`
 	UseHTTPS       bool   `mapstructure:"https"`
 	UseUnix        bool   `mapstructure:"unix"`
-	NoHighlight    bool   `mapstructure:"no-highlight"`
+	Highlight      bool   `mapstructure:"highlight"`
 	StreamResponse bool   `mapstructure:"stream"`
 	FormBody       bool   `mapstructure:"form"`
 	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
@@ -53,7 +53,7 @@ const (
 	flagHTTP           = "http"
 	flagHTTPS          = "https"
 	flagUnix           = "unix"
-	flagNoHighlight    = "no-highlight"
+	flagHighlight      = "highlight"
 	flagStream         = "stream"
 	flagForm           = "form"
 	flagSaveAllHeaders = "save-all-headers"
@@ -263,7 +263,7 @@ $XDG_CONFIG_PATH/get/config.json.
 
 		// Print our request, if we need to.
 		if f.Verbose {
-			if err := out.PrintRequest(req, writer.WithHighlight(!f.NoHighlight)); err != nil {
+			if err := out.PrintRequest(req, writer.WithHighlight(f.Highlight)); err != nil {
 				return fmt.Errorf("could not print request: %w", err)
 			}
 		}
@@ -324,7 +324,7 @@ $XDG_CONFIG_PATH/get/config.json.
 		if err := out.PrintResponse(resp,
 			writer.WithHeaders(!f.NoHeaders),
 			writer.WithBody(!f.NoBody),
-			writer.WithHighlight(!f.NoHighlight),
+			writer.WithHighlight(f.Highlight),
 			writer.WithStream(f.StreamResponse),
 		); err != nil {
 			return fmt.Errorf("could not print response: %w", err)
@@ -363,7 +363,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS, regardless of session configuration")
 	rootCmd.Flags().Bool(flagHTTPS, false, "Use HTTPS instead of HTTP, regardless of session configuration")
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
-	rootCmd.Flags().Bool(flagNoHighlight, false, "Do not format or highlight input or output")
+	rootCmd.Flags().BoolP(flagHighlight, "l", false, "Format and highlight input and output")
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 	rootCmd.Flags().Bool(flagSaveAllHeaders, false, "Save all request headers to the session")
