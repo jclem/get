@@ -26,6 +26,7 @@ type flags struct {
 	NoRedirects    bool   `mapstructure:"no-redirects"`
 	NoSession      bool   `mapstructure:"no-session"`
 	SessionName    string `mapstructure:"session"`
+	MaxRedirects   int    `mapstructure:"max-redirects"`
 	HTTPMethod     string `mapstructure:"method"`
 	Verbose        bool   `mapstructure:"verbose"`
 	Data           string `mapstructure:"data"`
@@ -45,6 +46,7 @@ const (
 	flagNoRedirects    = "no-redirects"
 	flagNoSession      = "no-session"
 	flagSession        = "session"
+	flagMaxRedirects   = "max-redirects"
 	flagMethod         = "method"
 	flagVerbose        = "verbose"
 	flagData           = "data"
@@ -297,6 +299,13 @@ $XDG_CONFIG_PATH/get/config.json.
 			httpc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			}
+		} else {
+			httpc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				if len(via) >= f.MaxRedirects {
+					return errors.New("stopped after too many redirects")
+				}
+				return nil
+			}
 		}
 
 		// Make our request.
@@ -347,6 +356,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
 	rootCmd.Flags().BoolP(flagNoRedirects, "R", false, "Do not follow redirects")
 	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
+	rootCmd.Flags().Int(flagMaxRedirects, 10, "Maximum number of redirects to follow")
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
