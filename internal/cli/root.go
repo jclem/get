@@ -23,6 +23,7 @@ type flags struct {
 	ConfigPath     string `mapstructure:"config"`
 	NoBody         bool   `mapstructure:"no-body"`
 	NoHeaders      bool   `mapstructure:"no-headers"`
+	NoRedirects    bool   `mapstructure:"no-redirects"`
 	NoSession      bool   `mapstructure:"no-session"`
 	SessionName    string `mapstructure:"session"`
 	HTTPMethod     string `mapstructure:"method"`
@@ -41,6 +42,7 @@ const (
 	flagConfig         = "config"
 	flagNoBody         = "no-body"
 	flagNoHeaders      = "no-headers"
+	flagNoRedirects    = "no-redirects"
 	flagNoSession      = "no-session"
 	flagSession        = "session"
 	flagMethod         = "method"
@@ -73,7 +75,7 @@ HTTP headers are specified using Key:Value syntax. For example, to specify a
 header named "Accept" with a value of "application/json", you would use:
 
     get example.com accept:application/json
-	
+
 Note that HTTP header names are canonicalized automatically, so "Accept" would
 be sent, in this case, not "accept".
 
@@ -291,6 +293,12 @@ $XDG_CONFIG_PATH/get/config.json.
 			httpc = http.DefaultClient
 		}
 
+		if f.NoRedirects {
+			httpc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			}
+		}
+
 		// Make our request.
 		resp, err := httpc.Do(req)
 		if err != nil {
@@ -337,6 +345,7 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().String(flagConfig, "", "Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)")
 	rootCmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
 	rootCmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
+	rootCmd.Flags().BoolP(flagNoRedirects, "R", false, "Do not follow redirects")
 	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
