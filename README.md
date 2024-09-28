@@ -39,18 +39,19 @@ a query parameter named "q" with a value of "foo", you would use:
 
 #### Request Body
 
-Request bodies can be specified using the format `<path>[:]=<value>`. For example,
-to specify a request body of `{"foo":"bar"}`, you would use:
+Request bodies can be specified using the format `<path>[:]=<value>`. For
+example, to specify a request body of `{"foo":"bar"}`, you would use:
 
     get example.com foo=bar
 
 The value is parsed as a string, unless a colon is present, in which case the
-value is parsed as JSON. For example, to specify a request body of
-`{"foo": true}`, you would use:
+value is parsed as JSON. For example, to specify a request body of `{"foo":
+true}`, you would use:
 
     get example.com foo:=true
 
-Paths can be used to specify more complex request bodies, and they can be nested.
+Paths can be used to specify more complex request bodies, and they can be
+nested.
 
     foo[bar]=baz // {"foo":{"bar":"baz"}} Sets an object value.
     foo[]=bar    // {"foo":["bar"]} Pushes a value onto an array.
@@ -118,7 +119,8 @@ Use "get [command] --help" for more information about a command.
 Get can be configured using the configuration file located by default at
 $XDG_CONFIG_PATH/get/config.json.
 
-- "fallback_hostname" (string): The hostname to use when no hostname is specified (for
-  example, if the host is simply ":3000").
-- "http_hostnames" (list of strings): A list of hostnames that are considered HTTP hostnames. By
-  default, these hosts will use HTTP unless otherwise noted by flag or session.
+- "fallback_hostname" (string): The hostname to use when no hostname is
+  specified (for example, if the host is simply ":3000").
+- "http_hostnames" (list of strings): A list of hostnames that are considered
+  HTTP hostnames. By default, these hosts will use HTTP unless otherwise noted by
+  flag or session.
