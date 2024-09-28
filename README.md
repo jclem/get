@@ -26,7 +26,7 @@ HTTP headers are specified using Key:Value syntax. For example, to specify a
 header named "Accept" with a value of "application/json", you would use:
 
     get example.com accept:application/json
-	
+
 Note that HTTP header names are canonicalized automatically, so "Accept" would
 be sent, in this case, not "accept".
 
@@ -91,21 +91,24 @@ Available Commands:
   session                           Manage sessions
 
 Flags:
-      --config string      Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)
-  -d, --data string        Data to send in the request body
-      --form               Send input as form data instead of JSON
-  -h, --help               help for get
-      --http               Use HTTP instead of HTTPS, regardless of session configuration
-      --https              Use HTTPS instead of HTTP, regardless of session configuration
-  -X, --method string      HTTP method to use (default "GET")
-  -B, --no-body            Do not print the response body
-  -H, --no-headers         Do not print the response headers
-      --no-highlight       Do not format or highlight input or output
-  -S, --no-session         Do not use a stored session if one exists for this host
-      --save-all-headers   Save all request headers to the session
-  -s, --session string     Session name to use (defaults to URL host)
-  -t, --stream             Stream the response body (implies --no-highlight of output)
-  -v, --verbose            Print verbose output
+      --config string       Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)
+  -d, --data string         Data to send in the request body
+      --form                Send input as form data instead of JSON
+  -h, --help                help for get
+  -l, --highlight           Format and highlight input and output
+      --http                Use HTTP instead of HTTPS, regardless of session configuration
+      --https               Use HTTPS instead of HTTP, regardless of session configuration
+      --max-redirects int   Maximum number of redirects to follow (default 10)
+  -X, --method string       HTTP method to use (default "GET")
+  -B, --no-body             Do not print the response body
+  -H, --no-headers          Do not print the response headers
+  -R, --no-redirects        Do not follow redirects
+  -S, --no-session          Do not use a stored session if one exists for this host
+      --save-all-headers    Save all request headers to the session
+  -s, --session string      Session name to use (defaults to URL host)
+  -t, --stream              Stream the response body (implies --no-highlight of output)
+  -u, --unix                Use a Unix socket instead of a network connection
+  -v, --verbose             Print verbose output
 
 Use "get [command] --help" for more information about a command.
 ```
@@ -116,6 +119,6 @@ Get can be configured using the configuration file located by default at
 $XDG_CONFIG_PATH/get/config.json.
 
 - "fallback_hostname" (string): The hostname to use when no hostname is specified (for
-	example, if the host is simply ":3000").
+  example, if the host is simply ":3000").
 - "http_hostnames" (list of strings): A list of hostnames that are considered HTTP hostnames. By
-	default, these hosts will use HTTP unless otherwise noted by flag or session.
+  default, these hosts will use HTTP unless otherwise noted by flag or session.
