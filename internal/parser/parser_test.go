@@ -175,10 +175,28 @@ func TestParseInput(t *testing.T) {
 			error: nil,
 		},
 	}, {
-		description: "ParsesRawJSONValues",
+		description: "ParsesRawJSONMaps",
 		input:       testInput{input: []string{`foo:={"bar":"baz"}`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": "baz"}}),
+		},
+	}, {
+		description: "ParsesRawJSONStrings",
+		input:       testInput{input: []string{`foo:="bar"`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": "bar"}),
+		},
+	}, {
+		description: "ParsesRawJSONInts",
+		input:       testInput{input: []string{`foo:=1`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": float64(1)}),
+		},
+	}, {
+		description: "ParsesRawJSONNulls",
+		input:       testInput{input: []string{`foo:=null`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{"foo": parser.JSONNull{}}),
 		},
 	}, {
 		description: "SetsMultipleArrayEnd",

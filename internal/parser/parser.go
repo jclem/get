@@ -362,6 +362,16 @@ var accessJSONParser = parsec.And(toAccess,
 	parsec.Many(parseJSON, parsec.TokenExact(".", "ACCESSVALCHAR")),
 )
 
+// JSONNull is a value representing a JSON null value.
+//
+// This is required because `parseJSON` will be passed over if it returns `nil`
+// in an OrdChoice combinator.
+type JSONNull struct{}
+
+func (j JSONNull) MarshalJSON() ([]byte, error) {
+	return []byte("null"), nil
+}
+
 func parseJSON(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 	str, ok := toString(nodes).(string)
 	if !ok {
@@ -373,6 +383,10 @@ func parseJSON(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 	err := json.Unmarshal([]byte(str), &val)
 	if err != nil {
 		panic(err)
+	}
+
+	if val == nil {
+		return JSONNull{}
 	}
 
 	return val
