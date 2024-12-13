@@ -400,7 +400,7 @@ func getMethod(method string, methodChanged bool, hasData bool) (string, error) 
 	}
 
 	switch method {
-	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	case http.MethodHead, http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		return method, nil
 	default:
 		return "", newUnknownMethodError(method)
