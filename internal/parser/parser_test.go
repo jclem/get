@@ -175,6 +175,37 @@ func TestParseInput(t *testing.T) {
 			error: nil,
 		},
 	}, {
+		description: "ParsesMultipleComplexParamsFlexible",
+		input:       testInput{input: []string{`foo[].bar=baz`, `foo[]qux=quux`, `foo.3[][]a[]4[].b[c][][d]=x`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam(map[string]any{
+				"foo": []any{
+					map[string]any{"bar": "baz"},
+					map[string]any{"qux": "quux"},
+					nil,
+					[]any{
+						[]any{
+							map[string]any{
+								"a": []any{
+									[]any{nil, nil, nil, nil, []any{
+										map[string]any{
+											"b": map[string]any{
+												"c": []any{
+													map[string]any{"d": "x"},
+												},
+											},
+										},
+									},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			error: nil,
+		},
+	}, {
 		description: "ParsesRawJSONMaps",
 		input:       testInput{input: []string{`foo:={"bar":"baz"}`}},
 		output: testOutput{

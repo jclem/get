@@ -27,31 +27,17 @@ type ParsedQueryParam struct {
 	Value string
 }
 
-type accessPath interface {
-	Type() string
-}
+type accessPath any
 
 type accessObjectKey struct {
 	key string
-}
-
-func (k accessObjectKey) Type() string {
-	return "objectKey"
 }
 
 type accessArrayIndex struct {
 	index int
 }
 
-func (i accessArrayIndex) Type() string {
-	return "arrayIndex"
-}
-
 type accessArrayEnd struct{}
-
-func (e accessArrayEnd) Type() string {
-	return "arrayEnd"
-}
 
 type parsedAccess struct {
 	path  []accessPath
@@ -279,10 +265,16 @@ var firstKeyParser = parsec.Many(func(nodes []parsec.ParsecNode) parsec.ParsecNo
 	return accessObjectKey{key: key}
 }, parsec.TokenExact("[^:=\\[]", "FIRSTKEYCHAR"))
 
-var objectKeyParser = parsec.And(toObjectKeyAccessAtIndex(1),
-	parsec.TokenExact(`\[`, "OPENBRACKET"),
-	parsec.Many(toString, parsec.TokenExact(`[^\]]`, "KEYCHAR")),
-	parsec.TokenExact(`\]`, "CLOSEBRACKET"),
+var objectKeyParser = parsec.OrdChoice(nil,
+	parsec.And(toObjectKeyAccessAtIndex(1),
+		parsec.TokenExact(`\[`, "OPENBRACKET"),
+		parsec.Many(toString, parsec.TokenExact(`[^\]]`, "KEYCHAR")),
+		parsec.TokenExact(`\]`, "CLOSEBRACKET")),
+	parsec.And(toObjectKeyAccessAtIndex(1),
+		parsec.TokenExact(`\.`, "PERIOD"),
+		parsec.Many(toString, parsec.TokenExact(`[^\.\[:=]`, "KEYCHAR"))),
+	parsec.And(toObjectKeyAccessAtIndex(0),
+		parsec.Many(toString, parsec.TokenExact(`[^\.\[:=]`, "KEYCHAR"))),
 )
 
 func toObjectKeyAccessAtIndex(index int) parsec.Nodify {
@@ -302,24 +294,32 @@ func toAccessArrayEnd(_ []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 	return accessArrayEnd{}
 }
 
-var arrayIndexParser = parsec.And(toAccessArrayIndex,
-	parsec.TokenExact(`\[`, "OPENBRACKET"),
-	parsec.Many(toInt, parsec.TokenExact(`[0-9]`, "INDEXCHAR")),
-	parsec.TokenExact(`\]`, "CLOSEBRACKET"),
+var arrayIndexParser = parsec.OrdChoice(nil,
+	parsec.And(toAccessArrayIndexAtIndex(1),
+		parsec.TokenExact(`\[`, "OPENBRACKET"),
+		parsec.Many(toInt, parsec.TokenExact(`[0-9]`, "INDEXCHAR")),
+		parsec.TokenExact(`\]`, "CLOSEBRACKET"),
+	),
+	parsec.And(toAccessArrayIndexAtIndex(1),
+		parsec.TokenExact(`\.`, "PERIOD"),
+		parsec.Many(toInt, parsec.TokenExact(`[0-9]`, "INDEXCHAR"))),
+	parsec.And(toAccessArrayIndexAtIndex(0),
+		parsec.Many(toInt, parsec.TokenExact(`[0-9]`, "INDEXCHAR"))),
 )
 
-func toAccessArrayIndex(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
-	index, ok := nodes[1].(int)
-	if !ok {
-		panic(fmt.Sprintf("unexpected type: %T\n", nodes[1]))
-	}
+func toAccessArrayIndexAtIndex(index int) parsec.Nodify {
+	return func(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
+		index, ok := nodes[index].(int)
+		if !ok {
+			panic(fmt.Sprintf("unexpected type: %T\n", nodes[1]))
+		}
 
-	return accessArrayIndex{index: index}
+		return accessArrayIndex{index: index}
+	}
 }
 
 var accessKeyParser = parsec.And(toAccessPath,
-	parsec.Maybe(nil, firstKeyParser),
-	parsec.Kleene(nil, parsec.OrdChoice(nil, arrayIndexParser, objectKeyParser, arrayEndParser)),
+	parsec.Many(nil, parsec.OrdChoice(nil, arrayIndexParser, objectKeyParser, arrayEndParser)),
 )
 
 func toAccessPath(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
