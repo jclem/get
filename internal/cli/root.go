@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/jclem/get/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/exp/slices"
+	"golang.org/x/term"
 )
 
 type rootFlags struct {
@@ -33,7 +35,7 @@ type rootFlags struct {
 	UseHTTP        bool   `mapstructure:"http"`
 	UseHTTPS       bool   `mapstructure:"https"`
 	UseUnix        bool   `mapstructure:"unix"`
-	Highlight      bool   `mapstructure:"highlight"`
+	NoHighlight    bool   `mapstructure:"no-highlight"`
 	StreamResponse bool   `mapstructure:"stream"`
 	FormBody       bool   `mapstructure:"form"`
 	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
@@ -53,7 +55,7 @@ const (
 	flagHTTP           = "http"
 	flagHTTPS          = "https"
 	flagUnix           = "unix"
-	flagHighlight      = "highlight"
+	flagNoHighlight    = "no-highlight"
 	flagStream         = "stream"
 	flagForm           = "form"
 	flagSaveAllHeaders = "save-all-headers"
@@ -278,9 +280,14 @@ $XDG_CONFIG_PATH/get/config.json.
 		// Create a request/response writer struct.
 		out := writer.NewWriter(cmd.OutOrStdout())
 
+		highlight := term.IsTerminal(int(os.Stdout.Fd()))
+		if cmd.Flags().Changed(flagNoHighlight) {
+			highlight = !rootCmdFlags.NoHighlight
+		}
+
 		// Print our request, if we need to.
 		if rootCmdFlags.Verbose {
-			if err := out.PrintRequest(req, writer.WithHighlight(rootCmdFlags.Highlight)); err != nil {
+			if err := out.PrintRequest(req, writer.WithHighlight(highlight)); err != nil {
 				return fmt.Errorf("print request: %w", err)
 			}
 		}
@@ -341,7 +348,7 @@ $XDG_CONFIG_PATH/get/config.json.
 		if err := out.PrintResponse(resp,
 			writer.WithHeaders(!rootCmdFlags.NoHeaders),
 			writer.WithBody(!rootCmdFlags.NoBody),
-			writer.WithHighlight(rootCmdFlags.Highlight),
+			writer.WithHighlight(highlight),
 			writer.WithStream(rootCmdFlags.StreamResponse),
 		); err != nil {
 			return fmt.Errorf("print response: %w", err)
@@ -383,7 +390,7 @@ func init() {
 	rootCmd.Flags().Bool(flagHTTP, false, "Use HTTP instead of HTTPS, regardless of session configuration")
 	rootCmd.Flags().Bool(flagHTTPS, false, "Use HTTPS instead of HTTP, regardless of session configuration")
 	rootCmd.Flags().StringP(flagSession, "s", "", "Session name to use (defaults to URL host)")
-	rootCmd.Flags().BoolP(flagHighlight, "l", false, "Format and highlight input and output")
+	rootCmd.Flags().BoolP(flagNoHighlight, "L", false, "Do not format and highlight input and output")
 	rootCmd.Flags().BoolP(flagStream, "t", false, "Stream the response body (implies --no-highlight of output)")
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 	rootCmd.Flags().Bool(flagSaveAllHeaders, false, "Save all request headers to the session")
