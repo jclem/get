@@ -19,7 +19,7 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-type flags struct {
+type rootFlags struct {
 	ConfigPath     string `mapstructure:"config"`
 	NoBody         bool   `mapstructure:"no-body"`
 	NoHeaders      bool   `mapstructure:"no-headers"`
@@ -58,6 +58,8 @@ const (
 	flagForm           = "form"
 	flagSaveAllHeaders = "save-all-headers"
 )
+
+var rootCmdFlags rootFlags
 
 var rootCmd = &cobra.Command{
 	Use:          "get <url> [request-options]",
@@ -138,17 +140,32 @@ $XDG_CONFIG_PATH/get/config.json.
 	default, these hosts will use HTTP unless otherwise noted by flag or session.
 `,
 	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) (err error) {
-		// Read our request configuration flags.
-		f, err := loadAndValidateFlags()
-		if err != nil {
-			return err
+	PreRunE: func(cmd *cobra.Command, _ []string) error {
+		if err := viper.BindPFlags(cmd.Flags()); err != nil {
+			return fmt.Errorf("bind flags: %w", err)
 		}
 
+		if err := viper.Unmarshal(&rootCmdFlags); err != nil {
+			return fmt.Errorf("unmarshal flags: %w", err)
+		}
+
+		if rootCmdFlags.UseHTTP && rootCmdFlags.UseHTTPS {
+			return errors.New("cannot specify both --http and --https")
+		}
+
+		if rootCmdFlags.UseUnix && (rootCmdFlags.UseHTTP || rootCmdFlags.UseHTTPS) {
+			return errors.New("cannot specify both --unix and --http or --https")
+		}
+
+		return nil
+	},
+	RunE: func(cmd *cobra.Command, args []string) (err error) {
+		ctx := cmd.Context()
+
 		// Read our config file.
-		cfg, err := config.Read(f.ConfigPath)
+		cfg, err := config.Read(rootCmdFlags.ConfigPath)
 		if err != nil {
-			return fmt.Errorf("could not read config: %w", err)
+			return fmt.Errorf("read config: %w", err)
 		}
 
 		// First, do some basic URL parsing.
@@ -163,7 +180,7 @@ $XDG_CONFIG_PATH/get/config.json.
 		}
 
 		// Load the session, or use an empty one.
-		ssn, err := loadSession(f, reqURL)
+		ssn, err := loadSession(rootCmdFlags, reqURL)
 		if err != nil {
 			return err
 		}
@@ -171,9 +188,9 @@ $XDG_CONFIG_PATH/get/config.json.
 		// Set our URL scheme, if the user didn't provide one, using flags or
 		// the session.
 		if !userProvidedScheme {
-			if f.UseHTTP {
+			if rootCmdFlags.UseHTTP {
 				reqURL.Scheme = "http"
-			} else if f.UseHTTPS {
+			} else if rootCmdFlags.UseHTTPS {
 				reqURL.Scheme = "https"
 			} else if ssn.Scheme != "" {
 				reqURL.Scheme = ssn.Scheme
@@ -187,18 +204,18 @@ $XDG_CONFIG_PATH/get/config.json.
 		// Load and parse our non-flag inputs.
 		input, err := parser.ParseInput(args[1:])
 		if err != nil {
-			return fmt.Errorf("could not parse input: %w", err)
+			return fmt.Errorf("parse input: %w", err)
 		}
 
 		// Validate that we don't have both input data and a data flag.
-		data := f.Data
+		data := rootCmdFlags.Data
 		if data != "" && input.Body != nil {
 			return errors.New("cannot specify both data and body")
 		}
 
 		// If given input body, marshal it as JSON or form data.
 		if input.Body != nil {
-			if f.FormBody {
+			if rootCmdFlags.FormBody {
 				data, err = marshalFormBody(input.Body)
 				if err != nil {
 					return err
@@ -206,7 +223,7 @@ $XDG_CONFIG_PATH/get/config.json.
 			} else {
 				b, err := json.Marshal(input.Body)
 				if err != nil {
-					return fmt.Errorf("could not marshal body: %w", err)
+					return fmt.Errorf("marshal request body: %w", err)
 				}
 
 				data = string(b)
@@ -214,15 +231,15 @@ $XDG_CONFIG_PATH/get/config.json.
 		}
 
 		// Get our HTTP method (or default).
-		method, err := getMethod(f.HTTPMethod, cmd.Flags().Changed(flagMethod), data != "")
+		method, err := getMethod(rootCmdFlags.HTTPMethod, cmd.Flags().Changed(flagMethod), data != "")
 		if err != nil {
 			return err
 		}
 
 		// Create our request.
-		req, err := http.NewRequestWithContext(cmd.Context(), method, reqURL.String(), strings.NewReader(data))
+		req, err := http.NewRequestWithContext(ctx, method, reqURL.String(), strings.NewReader(data))
 		if err != nil {
-			return fmt.Errorf("could not create request: %w", err)
+			return fmt.Errorf("create request: %w", err)
 		}
 
 		// First, set any headers from the session.
@@ -238,17 +255,17 @@ $XDG_CONFIG_PATH/get/config.json.
 		}
 
 		// Set content-type if it's not set and we have data.
-		if req.Header.Get("content-type") == "" && data != "" {
-			if f.FormBody {
-				req.Header.Set("content-type", "application/x-www-form-urlencoded")
+		if req.Header.Get("Content-Type") == "" && data != "" {
+			if rootCmdFlags.FormBody {
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			} else {
-				req.Header.Set("content-type", "application/json")
+				req.Header.Set("Content-Type", "application/json")
 			}
 		}
 
 		// Set the host header if it's not set.
-		if req.Header.Get("host") == "" {
-			req.Header.Set("host", reqURL.Host)
+		if req.Header.Get("Host") == "" {
+			req.Header.Set("Host", reqURL.Host)
 		}
 
 		// Set our query parameters.
@@ -262,29 +279,29 @@ $XDG_CONFIG_PATH/get/config.json.
 		out := writer.NewWriter(cmd.OutOrStdout())
 
 		// Print our request, if we need to.
-		if f.Verbose {
-			if err := out.PrintRequest(req, writer.WithHighlight(f.Highlight)); err != nil {
-				return fmt.Errorf("could not print request: %w", err)
+		if rootCmdFlags.Verbose {
+			if err := out.PrintRequest(req, writer.WithHighlight(rootCmdFlags.Highlight)); err != nil {
+				return fmt.Errorf("print request: %w", err)
 			}
 		}
 
 		var httpc *http.Client
-		if f.UseUnix {
+		if rootCmdFlags.UseUnix {
 			// Example path /path/to/sock.sock/request/path
 			// Address: /path/to/sock.sock
 			// Path: /request/path
 			sockIdx := strings.Index(req.URL.Path, ".sock")
 			if sockIdx == -1 {
-				return fmt.Errorf("could not find .sock in URL path: %s", req.URL.Path)
+				return fmt.Errorf("find .sock in URL path: %s", req.URL.Path)
 			}
 			addr := req.URL.Path[:sockIdx+5]
 			req.URL.Path = req.URL.Path[sockIdx+5:]
-			httpc = &http.Client{
-				Transport: &http.Transport{
+			httpc = &http.Client{ //nolint:exhaustruct
+				Transport: &http.Transport{ //nolint:exhaustruct
 					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 						conn, err := net.Dial("unix", addr)
 						if err != nil {
-							return nil, fmt.Errorf("could not dial Unix socket: %w", err)
+							return nil, fmt.Errorf("dial Unix socket: %w", err)
 						}
 
 						return conn, nil
@@ -295,14 +312,14 @@ $XDG_CONFIG_PATH/get/config.json.
 			httpc = http.DefaultClient
 		}
 
-		if f.NoRedirects {
-			httpc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if rootCmdFlags.NoRedirects {
+			httpc.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			}
 		} else {
-			httpc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-				if len(via) >= f.MaxRedirects {
-					return errors.New("stopped after too many redirects")
+			httpc.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+				if len(via) >= rootCmdFlags.MaxRedirects {
+					return errors.New("too many redirects")
 				}
 				return nil
 			}
@@ -311,7 +328,7 @@ $XDG_CONFIG_PATH/get/config.json.
 		// Make our request.
 		resp, err := httpc.Do(req)
 		if err != nil {
-			return fmt.Errorf("could not make request: %w", err)
+			return fmt.Errorf("do request: %w", err)
 		}
 
 		defer func() {
@@ -322,26 +339,28 @@ $XDG_CONFIG_PATH/get/config.json.
 
 		// Print our response.
 		if err := out.PrintResponse(resp,
-			writer.WithHeaders(!f.NoHeaders),
-			writer.WithBody(!f.NoBody),
-			writer.WithHighlight(f.Highlight),
-			writer.WithStream(f.StreamResponse),
+			writer.WithHeaders(!rootCmdFlags.NoHeaders),
+			writer.WithBody(!rootCmdFlags.NoBody),
+			writer.WithHighlight(rootCmdFlags.Highlight),
+			writer.WithStream(rootCmdFlags.StreamResponse),
 		); err != nil {
-			return fmt.Errorf("could not print response: %w", err)
+			return fmt.Errorf("print response: %w", err)
 		}
 
 		// Lastly, write the session if we need to.
-		shouldWriteSession := f.UseHTTP // Write the session if the user specified non-default protocol.
+		shouldWriteSession := rootCmdFlags.UseHTTP // Write the session if the user specified non-default protocol.
 		for _, header := range input.Headers {
-			if session.IsWritableHeader(header.Name) || f.SaveAllHeaders {
+			if session.IsWritableHeader(header.Name) || rootCmdFlags.SaveAllHeaders {
 				shouldWriteSession = true
 				break
 			}
 		}
 
-		if !f.NoSession && shouldWriteSession {
-			if err := session.WriteSession(f.SessionName, req, session.WriteSessionOpts{SaveAllHeaders: f.SaveAllHeaders}); err != nil {
-				return fmt.Errorf("could not write session: %w", err)
+		if !rootCmdFlags.NoSession && shouldWriteSession {
+			if err := session.WriteSession(rootCmdFlags.SessionName,
+				req, session.WriteSessionOpts{SaveAllHeaders: rootCmdFlags.SaveAllHeaders}); err != nil {
+
+				return fmt.Errorf("write session: %w", err)
 			}
 		}
 
@@ -349,14 +368,15 @@ $XDG_CONFIG_PATH/get/config.json.
 	},
 }
 
-// Execute runs the root command.
-func Execute(ctx context.Context) error {
+const maxRedirects = 10
+
+func init() {
 	rootCmd.Flags().String(flagConfig, "", "Path to the configuration file (defaults to $XDG_CONFIG_HOME/get/config.json)")
 	rootCmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
 	rootCmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
 	rootCmd.Flags().BoolP(flagNoRedirects, "R", false, "Do not follow redirects")
 	rootCmd.Flags().BoolP(flagNoSession, "S", false, "Do not use a stored session if one exists for this host")
-	rootCmd.Flags().Int(flagMaxRedirects, 10, "Maximum number of redirects to follow")
+	rootCmd.Flags().Int(flagMaxRedirects, maxRedirects, "Maximum number of redirects to follow")
 	rootCmd.Flags().StringP(flagMethod, "X", http.MethodGet, "HTTP method to use")
 	rootCmd.Flags().BoolP(flagVerbose, "v", false, "Print verbose output")
 	rootCmd.Flags().StringP(flagData, "d", "", "Data to send in the request body")
@@ -368,13 +388,12 @@ func Execute(ctx context.Context) error {
 	rootCmd.Flags().Bool(flagForm, false, "Send input as form data instead of JSON")
 	rootCmd.Flags().Bool(flagSaveAllHeaders, false, "Save all request headers to the session")
 	rootCmd.Flags().BoolP(flagUnix, "u", false, "Use a Unix socket instead of a network connection")
+}
 
-	if err := viper.BindPFlags(rootCmd.Flags()); err != nil {
-		return fmt.Errorf("could not bind flags: %w", err)
-	}
-
+// Execute runs the root command.
+func Execute(ctx context.Context) error {
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		return fmt.Errorf("could not execute root command: %w", err)
+		return fmt.Errorf("execute root command: %w", err)
 	}
 
 	return nil
@@ -407,25 +426,8 @@ func getMethod(method string, methodChanged bool, hasData bool) (string, error) 
 	}
 }
 
-func loadAndValidateFlags() (*flags, error) {
-	var f flags
-	if err := viper.Unmarshal(&f); err != nil {
-		return nil, fmt.Errorf("could not unmarshal flags: %w", err)
-	}
-
-	if f.UseHTTP && f.UseHTTPS {
-		return nil, errors.New("cannot specify both --http and --https")
-	}
-
-	if f.UseUnix && (f.UseHTTP || f.UseHTTPS) {
-		return nil, errors.New("cannot specify both --unix and --http or --https")
-	}
-
-	return &f, nil
-}
-
-func loadSession(f *flags, reqURL *url.URL) (*session.Session, error) {
-	ssn := session.NewSession()
+func loadSession(f rootFlags, reqURL *url.URL) (*session.Session, error) {
+	ssn := session.New()
 	if !f.NoSession {
 		if f.SessionName == "" {
 			f.SessionName = reqURL.Host
@@ -433,7 +435,7 @@ func loadSession(f *flags, reqURL *url.URL) (*session.Session, error) {
 
 		readSSN, err := session.ReadSession(f.SessionName)
 		if err != nil && !errors.Is(err, session.ErrNoSession) {
-			return nil, fmt.Errorf("could not read session: %w", err)
+			return nil, fmt.Errorf("read session: %w", err)
 		}
 		ssn = readSSN
 	}
@@ -453,7 +455,7 @@ func getBaseURL(input string) (*url.URL, error) {
 
 	reqURL, err := url.Parse(urlArg)
 	if err != nil {
-		return nil, fmt.Errorf("could not parse URL: %w", err)
+		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 
 	return reqURL, nil

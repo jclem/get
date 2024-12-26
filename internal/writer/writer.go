@@ -44,6 +44,9 @@ type printOpts struct {
 func newPrintOpts(opts []PrintOpt) printOpts {
 	opt := printOpts{
 		highlight: true,
+		headers:   false,
+		body:      false,
+		stream:    false,
 	}
 
 	for _, o := range opts {
@@ -71,7 +74,7 @@ func WithStream(b bool) PrintOpt {
 }
 
 // PrintRequest prints information about an HTTP request.
-func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error { //nolint:gocognit
+func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error { //nolint:gocognit,funlen
 	printOpts := newPrintOpts(opts)
 
 	path := req.URL.Path
@@ -106,7 +109,7 @@ func (w *Writer) PrintRequest(req *http.Request, opts ...PrintOpt) error { //nol
 		bodyString := string(b)
 
 		if printOpts.highlight {
-			ct := req.Header.Get("content-type")
+			ct := req.Header.Get("Content-Type")
 			parts := strings.Split(ct, ";")
 
 			mimeType := "application/octet-stream"
@@ -179,7 +182,7 @@ func WithBody(b bool) PrintOpt {
 }
 
 // PrintResponse prints information about an HTTP response.
-func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error { //nolint:cyclop
+func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error { //nolint:funlen,gocognit
 	o := newPrintOpts(opts)
 
 	if o.headers {
@@ -201,11 +204,11 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error { //
 	}
 
 	if o.highlight && !o.stream { //nolint:nestif
-		ct := resp.Header.Get("content-type")
+		ct := resp.Header.Get("Content-Type")
 
 		mimeType, _, err := mime.ParseMediaType(ct)
 		if err != nil {
-			return fmt.Errorf("could not parse content-type: %w", err)
+			return fmt.Errorf("could not parse Content-Type: %w", err)
 		}
 
 		isJSON := mimeType == "application/json" || strings.HasSuffix(mimeType, "+json")

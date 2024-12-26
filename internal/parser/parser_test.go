@@ -47,10 +47,13 @@ func newResultBuilder() *resultBuilder {
 	return &resultBuilder{&parser.ParsedInput{
 		Headers:     make([]parser.ParsedHeader, 0),
 		QueryParams: make([]parser.ParsedQueryParam, 0),
+		Body:        nil,
 	}}
 }
 
-func TestParseInput(t *testing.T) {
+func TestParseInput(t *testing.T) { //nolint:funlen
+	t.Parallel()
+
 	testCases := []testCase{{
 		description: "ParsesSimpleHeader",
 		input:       testInput{input: []string{"foo:bar"}},
@@ -105,8 +108,14 @@ func TestParseInput(t *testing.T) {
 		description: "ParsesMultiNestedKVBodyParam",
 		input:       testInput{input: []string{`foo[bar][baz][qux]=quux`}},
 		output: testOutput{
-			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": map[string]any{"baz": map[string]any{"qux": "quux"}}}}),
-			error:  nil,
+			result: newResultBuilder().withBodyParam(map[string]any{
+				"foo": map[string]any{
+					"bar": map[string]any{
+						"baz": map[string]any{"qux": "quux"},
+					},
+				},
+			}),
+			error: nil,
 		},
 	}, {
 		description: "ParsesArrayEndParam",
@@ -127,6 +136,13 @@ func TestParseInput(t *testing.T) {
 		input:       testInput{input: []string{`[1]=foo`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam([]any{nil, "foo"}),
+			error:  nil,
+		},
+	}, {
+		description: "ParsesArrayIndexParamOverwrite",
+		input:       testInput{input: []string{`[1]=foo`, `[1]=bar`}},
+		output: testOutput{
+			result: newResultBuilder().withBodyParam([]any{nil, "bar"}),
 			error:  nil,
 		},
 	}, {
@@ -210,24 +226,28 @@ func TestParseInput(t *testing.T) {
 		input:       testInput{input: []string{`foo:={"bar":"baz"}`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": map[string]any{"bar": "baz"}}),
+			error:  nil,
 		},
 	}, {
 		description: "ParsesRawJSONStrings",
 		input:       testInput{input: []string{`foo:="bar"`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": "bar"}),
+			error:  nil,
 		},
 	}, {
 		description: "ParsesRawJSONInts",
 		input:       testInput{input: []string{`foo:=1`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": float64(1)}),
+			error:  nil,
 		},
 	}, {
 		description: "ParsesRawJSONNulls",
 		input:       testInput{input: []string{`foo:=null`}},
 		output: testOutput{
 			result: newResultBuilder().withBodyParam(map[string]any{"foo": parser.JSONNull{}}),
+			error:  nil,
 		},
 	}, {
 		description: "SetsMultipleArrayEnd",
@@ -247,6 +267,8 @@ func TestParseInput(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.description, func(t *testing.T) {
+			t.Parallel()
+
 			out, err := parser.ParseInput(testCase.input.input)
 
 			if testCase.output.error == nil {

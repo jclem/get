@@ -29,39 +29,41 @@ var sessionCmd = &cobra.Command{
 	Short: "Manage sessions",
 }
 
+var sessionCmdFlags sessionFlags
+
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List sessions",
-	PreRunE: func(cmd *cobra.Command, args []string) error {
+	PreRunE: func(cmd *cobra.Command, _ []string) error {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
-			return fmt.Errorf("could not bind flags: %w", err)
+			return fmt.Errorf("bind flags: %w", err)
+		}
+
+		if err := viper.Unmarshal(&sessionCmdFlags); err != nil {
+			return fmt.Errorf("unmarshal flags: %w", err)
 		}
 
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		var f sessionFlags
-		if err := viper.Unmarshal(&f); err != nil {
-			return fmt.Errorf("could not unmarshal flags: %w", err)
-		}
-
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		cfg, err := session.ReadConfig()
 		if err != nil {
-			return fmt.Errorf("could not get configuration: %w", err)
+			return fmt.Errorf("get configuration: %w", err)
 		}
 
-		if f.JSON {
+		if sessionCmdFlags.JSON {
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
+			enc.SetEscapeHTML(false)
 
 			if err := enc.Encode(cfg.Sessions); err != nil {
-				return fmt.Errorf("could not encode session: %w", err)
+				return fmt.Errorf("encode session: %w", err)
 			}
 
 			return nil
 		}
 
-		w := tabwriter.NewWriter(cmd.OutOrStdout(), 4, 4, 4, ' ', 0)
+		w := newTabwriter(cmd)
 		_, _ = fmt.Fprintln(w, "Name\tHeaders")
 
 		names := maps.Keys(cfg.Sessions)
@@ -90,7 +92,7 @@ var sessionListCmd = &cobra.Command{
 		}
 
 		if err := w.Flush(); err != nil {
-			return fmt.Errorf("could not flush output: %w", err)
+			return fmt.Errorf("flush output: %w", err)
 		}
 
 		return nil
@@ -101,24 +103,23 @@ var sessionShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show a session by name",
 	Args:  cobra.ExactArgs(1),
-	PreRunE: func(cmd *cobra.Command, args []string) error {
+	PreRunE: func(cmd *cobra.Command, _ []string) error {
 		if err := viper.BindPFlags(cmd.Flags()); err != nil {
-			return fmt.Errorf("could not bind flags: %w", err)
+			return fmt.Errorf("bind flags: %w", err)
+		}
+
+		if err := viper.Unmarshal(&sessionCmdFlags); err != nil {
+			return fmt.Errorf("unmarshal flags: %w", err)
 		}
 
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var f sessionFlags
-		if err := viper.Unmarshal(&f); err != nil {
-			return fmt.Errorf("could not unmarshal flags: %w", err)
-		}
-
 		name := args[0]
 
 		cfg, err := session.ReadConfig()
 		if err != nil {
-			return fmt.Errorf("could not get configuration: %w", err)
+			return fmt.Errorf("get configuration: %w", err)
 		}
 
 		ssn, ok := cfg.Sessions[name]
@@ -126,18 +127,18 @@ var sessionShowCmd = &cobra.Command{
 			return fmt.Errorf("no session with name %q", name)
 		}
 
-		if f.JSON {
+		if sessionCmdFlags.JSON {
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 
 			if err := enc.Encode(ssn); err != nil {
-				return fmt.Errorf("could not encode session: %w", err)
+				return fmt.Errorf("encode session: %w", err)
 			}
 
 			return nil
 		}
 
-		w := tabwriter.NewWriter(cmd.OutOrStdout(), 4, 4, 4, ' ', 0)
+		w := newTabwriter(cmd)
 
 		headerNames := maps.Keys(ssn.Headers)
 		slices.Sort(headerNames)
@@ -150,7 +151,7 @@ var sessionShowCmd = &cobra.Command{
 		}
 
 		if err := w.Flush(); err != nil {
-			return fmt.Errorf("could not flush output: %w", err)
+			return fmt.Errorf("flush output: %w", err)
 		}
 
 		return nil
@@ -160,7 +161,7 @@ var sessionShowCmd = &cobra.Command{
 var sessionEditCmd = &cobra.Command{
 	Use:   "edit",
 	Short: "Edit session by using $EDITOR",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		path := session.SessionsPath()
 
 		editor := os.Getenv("EDITOR")
@@ -172,7 +173,7 @@ var sessionEditCmd = &cobra.Command{
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		if err := c.Run(); err != nil {
-			return fmt.Errorf("could not run editor: %w", err)
+			return fmt.Errorf("run editor: %w", err)
 		}
 
 		return nil
@@ -183,12 +184,12 @@ var sessionDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a session by name",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		name := args[0]
 
 		cfg, err := session.ReadConfig()
 		if err != nil {
-			return fmt.Errorf("could not get configuration: %w", err)
+			return fmt.Errorf("get configuration: %w", err)
 		}
 
 		if _, ok := cfg.Sessions[name]; !ok {
@@ -198,14 +199,14 @@ var sessionDeleteCmd = &cobra.Command{
 		delete(cfg.Sessions, name)
 
 		if err := session.WriteConfig(cfg); err != nil {
-			return fmt.Errorf("could not write configuration: %w", err)
+			return fmt.Errorf("write configuration: %w", err)
 		}
 
 		return nil
 	},
 }
 
-func init() { //nolint:gochecknoinits
+func init() {
 	sessionListCmd.Flags().BoolP(sessionFlagJSON, "j", false, "output as JSON")
 	sessionCmd.AddCommand(sessionListCmd)
 
@@ -214,5 +215,10 @@ func init() { //nolint:gochecknoinits
 
 	sessionCmd.AddCommand(sessionEditCmd)
 	sessionCmd.AddCommand(sessionDeleteCmd)
+
 	rootCmd.AddCommand(sessionCmd)
+}
+
+func newTabwriter(cmd *cobra.Command) *tabwriter.Writer {
+	return tabwriter.NewWriter(cmd.OutOrStdout(), 4, 4, 4, ' ', 0) //nolint:mnd
 }

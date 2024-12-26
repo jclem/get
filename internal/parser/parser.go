@@ -39,7 +39,7 @@ type accessArrayIndex struct {
 
 type accessArrayEnd struct{}
 
-type parsedAccess struct {
+type bodyComponent struct {
 	path  []accessPath
 	value any
 }
@@ -55,6 +55,7 @@ func newParsedInput() ParsedInput {
 	return ParsedInput{
 		Headers:     make([]ParsedHeader, 0),
 		QueryParams: make([]ParsedQueryParam, 0),
+		Body:        nil,
 	}
 }
 
@@ -83,8 +84,8 @@ func ParseInput(in []string) (*ParsedInput, error) {
 				parsed.Headers = append(parsed.Headers, n)
 			case ParsedQueryParam:
 				parsed.QueryParams = append(parsed.QueryParams, n)
-			case parsedAccess:
-				if err := handleParsedAccess(&parsed, n); err != nil {
+			case bodyComponent:
+				if err := parsed.buildBody(n); err != nil {
 					return nil, err
 				}
 			}
@@ -94,126 +95,74 @@ func ParseInput(in []string) (*ParsedInput, error) {
 	return &parsed, nil
 }
 
-func handleParsedAccess(p *ParsedInput, a parsedAccess) error {
+func (p *ParsedInput) buildBody(comp bodyComponent) error { //nolint:funlen // Less readable when broken up
 	currentTarget := p.Body
-	setCurrentTarget := func(v any) {
-		p.Body = v
-	}
+	setCurrentTarget := func(v any) { p.Body = v }
 
-	for _, s := range a.path[:len(a.path)-1] {
-		switch s := s.(type) {
+	for _, segment := range comp.path {
+		switch segment := segment.(type) {
 		case accessObjectKey:
-			switch t := (currentTarget).(type) {
+			var m map[string]any
+
+			switch target := currentTarget.(type) {
 			case nil:
-				m := map[string]any{s.key: nil}
-				currentTarget = m[s.key]
+				m = map[string]any{segment.key: nil}
 				setCurrentTarget(m)
-				setCurrentTarget = func(v any) {
-					m[s.key] = v
-				}
 			case map[string]any:
-				currentTarget = t[s.key]
-				setCurrentTarget = func(v any) {
-					t[s.key] = v
-				}
+				m = target
 			default:
-				return fmt.Errorf("attempted to access key of non-object (%T): %+v", t, t)
+				return fmt.Errorf("attempted to access key of non-object (%T): %+v", target, target)
 			}
+
+			currentTarget = m[segment.key]
+			setCurrentTarget = func(v any) { m[segment.key] = v }
 		case accessArrayIndex:
+			var a []any
+
 			switch t := (currentTarget).(type) {
 			case nil:
-				a := make([]any, s.index+1)
-				currentTarget = a[s.index]
+				a = make([]any, segment.index+1)
 				setCurrentTarget(a)
-				setCurrentTarget = func(v any) {
-					a[s.index] = v
-				}
 			case []any:
-				if s.index >= len(t) {
-					a := make([]any, s.index+1)
-					copy(a, t)
-					currentTarget = a[s.index]
+				a = t
+
+				if segment.index >= len(a) {
+					a = append(a, make([]any, segment.index-len(a)+1)...) //nolint:makezero
 					setCurrentTarget(a)
-					setCurrentTarget = func(v any) {
-						a[s.index] = v
-					}
-				} else {
-					currentTarget = t[s.index]
 				}
 			default:
 				return fmt.Errorf("attempted to access index of non-array (%T): %+v", t, t)
 			}
+
+			currentTarget = a[segment.index]
+			setCurrentTarget = func(v any) { a[segment.index] = v }
 		case accessArrayEnd:
+			var a []any
+
 			switch t := (currentTarget).(type) {
 			case nil:
-				a := make([]any, 1)
-				currentTarget = a[0]
+				a = make([]any, 1)
 				setCurrentTarget(a)
-				setCurrentTarget = func(v any) {
-					a[0] = v
-				}
 			case []any:
-				t = append(t, nil)
-				currentTarget = t[len(t)-1]
-				setCurrentTarget(t)
-				setCurrentTarget = func(v any) {
-					t[len(t)-1] = v
-				}
+				a = t
+				a = append(a, nil) //nolint:makezero
+				setCurrentTarget(a)
 			default:
 				return fmt.Errorf("attempted to access end of non-array (%T): %+v", t, t)
 			}
-		default:
-			return fmt.Errorf("unexpected access path type: %T", s)
+
+			currentTarget = a[len(a)-1]
+			setCurrentTarget = func(v any) { a[len(a)-1] = v }
 		}
 	}
 
-	switch p := a.path[len(a.path)-1].(type) {
-	case accessObjectKey:
-		switch t := currentTarget.(type) {
-		case map[string]any:
-			t[p.key] = a.value
-		case nil:
-			setCurrentTarget(map[string]any{p.key: a.value})
-		default:
-			return fmt.Errorf("attempted to set key of non-object (%T): %+v", t, t)
-		}
-	case accessArrayIndex:
-		switch t := currentTarget.(type) {
-		case []any:
-			if p.index >= len(t) {
-				c := make([]any, p.index+1)
-				copy(c, t)
-				c[p.index] = a.value
-				setCurrentTarget(c)
-			} else {
-				t[p.index] = a.value
-			}
-		case nil:
-			val := make([]any, p.index+1)
-			val[p.index] = a.value
-			setCurrentTarget(val)
-		default:
-			return fmt.Errorf("attempted to set index of non-array (%T): %+v", t, t)
-		}
-	case accessArrayEnd:
-		switch t := currentTarget.(type) {
-		case []any:
-			setCurrentTarget(append(t, a.value))
-		case nil:
-			val := make([]any, 1)
-			val[0] = a.value
-			setCurrentTarget(val)
-		default:
-			return fmt.Errorf("attempted to set end of non-array (%T): %+v", t, t)
-		}
-	default:
-		return fmt.Errorf("unexpected access path type: %T", p)
-	}
+	setCurrentTarget(comp.value)
 
 	return nil
 }
 
-var inputParser = parsec.OrdChoice(nil, accessJSONParser, queryParamParser, headerParser, accessStringParser)
+var inputParser = parsec.OrdChoice(nil,
+	accessJSONParser, queryParamParser, headerParser, accessStringParser)
 
 var headerParser = parsec.And(toHeader,
 	parsec.Many(toString, parsec.TokenExact("[A-Za-z0-9-_]", "HEADERKEYCHAR")),
@@ -235,14 +184,7 @@ func toHeader(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 	return ParsedHeader{Name: name, Value: value}
 }
 
-var queryParamParser = parsec.And(toQueryParam,
-	parsec.Many(toString, parsec.TokenExact("[^=]", "QUERYKEYCHAR")),
-	equalsSign,
-	equalsSign,
-	parsec.Many(toString, parsec.TokenExact(".", "QUERYVALCHAR")),
-)
-
-func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
+var queryParamParser = parsec.And(func(nodes []parsec.ParsecNode) parsec.ParsecNode {
 	name, ok := nodes[0].(string)
 	if !ok {
 		panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
@@ -254,16 +196,12 @@ func toQueryParam(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:iretur
 	}
 
 	return ParsedQueryParam{Name: name, Value: value}
-}
-
-var firstKeyParser = parsec.Many(func(nodes []parsec.ParsecNode) parsec.ParsecNode {
-	key, ok := toString(nodes).(string)
-	if !ok {
-		panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
-	}
-
-	return accessObjectKey{key: key}
-}, parsec.TokenExact("[^:=\\[]", "FIRSTKEYCHAR"))
+},
+	parsec.Many(toString, parsec.TokenExact("[^=]", "QUERYKEYCHAR")),
+	equalsSign,
+	equalsSign,
+	parsec.Many(toString, parsec.TokenExact(".", "QUERYVALCHAR")),
+)
 
 var objectKeyParser = parsec.OrdChoice(nil,
 	parsec.And(toObjectKeyAccessAtIndex(1),
@@ -308,7 +246,7 @@ var arrayIndexParser = parsec.OrdChoice(nil,
 )
 
 func toAccessArrayIndexAtIndex(index int) parsec.Nodify {
-	return func(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
+	return func(nodes []parsec.ParsecNode) parsec.ParsecNode {
 		index, ok := nodes[index].(int)
 		if !ok {
 			panic(fmt.Sprintf("unexpected type: %T\n", nodes[1]))
@@ -318,36 +256,40 @@ func toAccessArrayIndexAtIndex(index int) parsec.Nodify {
 	}
 }
 
-var accessKeyParser = parsec.And(toAccessPath,
-	parsec.Many(nil, parsec.OrdChoice(nil, arrayIndexParser, objectKeyParser, arrayEndParser)),
-)
+var accessKeyParser = parsec.And(func() func(nodes []parsec.ParsecNode) parsec.ParsecNode {
+	var toAccessPath func([]parsec.ParsecNode) parsec.ParsecNode
 
-func toAccessPath(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
-	path := make([]accessPath, 0, len(nodes))
+	toAccessPath = func(nodes []parsec.ParsecNode) parsec.ParsecNode {
+		path := make([]accessPath, 0, len(nodes))
 
-	for _, node := range nodes {
-		switch node := node.(type) {
-		case accessObjectKey:
-			path = append(path, node)
-		case accessArrayIndex:
-			path = append(path, node)
-		case accessArrayEnd:
-			path = append(path, node)
-		case []parsec.ParsecNode:
-			subPath, ok := toAccessPath(node).([]accessPath)
-			if !ok {
-				panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
+		for _, node := range nodes {
+			switch node := node.(type) {
+			case accessObjectKey:
+				path = append(path, node)
+			case accessArrayIndex:
+				path = append(path, node)
+			case accessArrayEnd:
+				path = append(path, node)
+			case []parsec.ParsecNode:
+				subPath, ok := toAccessPath(node).([]accessPath)
+				if !ok {
+					panic(fmt.Sprintf("unexpected type: %T\n", nodes[0]))
+				}
+
+				path = append(path, subPath...)
+			case parsec.MaybeNone:
+			default:
+				panic(fmt.Sprintf("unexpected type: %T\n", node))
 			}
-
-			path = append(path, subPath...)
-		case parsec.MaybeNone:
-		default:
-			panic(fmt.Sprintf("unexpected type: %T\n", node))
 		}
+
+		return path
 	}
 
-	return path
-}
+	return toAccessPath
+}(),
+	parsec.Many(nil, parsec.OrdChoice(nil, arrayIndexParser, objectKeyParser, arrayEndParser)),
+)
 
 var accessStringParser = parsec.And(toAccess,
 	accessKeyParser,
@@ -410,7 +352,7 @@ func toAccess(nodes []parsec.ParsecNode) parsec.ParsecNode { //nolint:ireturn
 		value = t
 	}
 
-	return parsedAccess{
+	return bodyComponent{
 		path:  path,
 		value: value,
 	}

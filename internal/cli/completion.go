@@ -6,10 +6,10 @@ import "github.com/spf13/cobra"
 var enableCompletionCmd = &cobra.Command{
 	Use:    "_____required_for_completion_____",
 	Hidden: true,
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 	},
 }
 
-func init() { //nolint:gochecknoinits
+func init() {
 	rootCmd.AddCommand(enableCompletionCmd)
 }

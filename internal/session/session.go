@@ -10,9 +10,9 @@ import (
 	"path"
 )
 
-var configHome = os.Getenv("XDG_DATA_HOME")
-var configDir = path.Join(configHome, "get")
-var sessionsPath = path.Join(configDir, "sessions.json")
+var configHome = os.Getenv("XDG_DATA_HOME")              //nolint:gochecknoglobals
+var configDir = path.Join(configHome, "get")             //nolint:gochecknoglobals
+var sessionsPath = path.Join(configDir, "sessions.json") //nolint:gochecknoglobals
 
 // SessionsPath returns the path to the sessions configuration file.
 func SessionsPath() string {
@@ -34,9 +34,12 @@ type Session struct {
 	Scheme  string              `json:"scheme"`
 }
 
-// NewSession returns a new empty session.
-func NewSession() *Session {
-	return &Session{Headers: make(map[string][]string)}
+// New returns a new empty session.
+func New() *Session {
+	return &Session{
+		Headers: make(map[string][]string),
+		Scheme:  "",
+	}
 }
 
 // ErrNoSession is returned when a session does not exist for a given host.
@@ -54,14 +57,14 @@ func ReadSession(name string) (*Session, error) {
 
 	ssn, ok := cfg.Sessions[name]
 	if !ok {
-		return NewSession(), ErrNoSession
+		return New(), ErrNoSession
 	}
 
 	return &ssn, nil
 }
 
-var writableHeaders = map[string]struct{}{
-	http.CanonicalHeaderKey("authorization"): {},
+var writableHeaders = map[string]struct{}{ //nolint:gochecknoglobals
+	http.CanonicalHeaderKey("Authorization"): {},
 }
 
 // IsWritableHeader returns whether or not a header is writable.
@@ -88,7 +91,7 @@ func WriteSession(name string, req *http.Request, opts WriteSessionOpts) error {
 
 	sess, ok := cfg.Sessions[name]
 	if !ok {
-		sess = *NewSession()
+		sess = *New()
 		cfg.Sessions[name] = sess
 	}
 
@@ -112,18 +115,18 @@ func ReadConfig() (*Config, error) {
 	// Create the config directory if it doesn't exist.
 	if _, err := os.Stat(configDir); err != nil {
 		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("could not stat config directory: %w", err)
+			return nil, fmt.Errorf("stat config directory: %w", err)
 		}
 
-		if err := os.MkdirAll(configDir, 0o700); err != nil {
-			return nil, fmt.Errorf("could not create config directory: %w", err)
+		if err := os.MkdirAll(configDir, 0o700); err != nil { //nolint:mnd // 700 is the correct mode
+			return nil, fmt.Errorf("create config directory: %w", err)
 		}
 	}
 
 	// Create the file if it doesn't exist.
 	if _, err := os.Stat(sessionsPath); err != nil {
 		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("could not stat sessions file: %w", err)
+			return nil, fmt.Errorf("stat sessions file: %w", err)
 		}
 
 		cfg := newConfig()
@@ -135,12 +138,12 @@ func ReadConfig() (*Config, error) {
 	// Read the file.
 	b, err := os.ReadFile(sessionsPath)
 	if err != nil {
-		return nil, fmt.Errorf("could not read sessions file: %w", err)
+		return nil, fmt.Errorf("read sessions file: %w", err)
 	}
 
 	var cfg Config
 	if err := json.Unmarshal(b, &cfg); err != nil {
-		return nil, fmt.Errorf("could not unmarshal sessions file: %w", err)
+		return nil, fmt.Errorf("unmarshal sessions file: %w", err)
 	}
 
 	return &cfg, nil
@@ -150,11 +153,11 @@ func ReadConfig() (*Config, error) {
 func WriteConfig(cfg *Config) error {
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("could not marshal config: %w", err)
+		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(sessionsPath, b, 0o600); err != nil {
-		return fmt.Errorf("could not write sessions file: %w", err)
+	if err := os.WriteFile(sessionsPath, b, 0o600); err != nil { //nolint:mnd // 600 is the correct mode
+		return fmt.Errorf("write sessions file: %w", err)
 	}
 
 	return nil
