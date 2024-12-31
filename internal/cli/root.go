@@ -363,8 +363,13 @@ $XDG_CONFIG_PATH/get/config.json.
 			}
 		}
 
+		sessionName := req.URL.Host
+		if rootCmdFlags.SessionName != "" {
+			sessionName = rootCmdFlags.SessionName
+		}
+
 		if !rootCmdFlags.NoSession && shouldWriteSession {
-			if err := session.WriteSession(rootCmdFlags.SessionName,
+			if err := session.WriteSession(sessionName,
 				req, session.WriteSessionOpts{SaveAllHeaders: rootCmdFlags.SaveAllHeaders}); err != nil {
 
 				return fmt.Errorf("write session: %w", err)
