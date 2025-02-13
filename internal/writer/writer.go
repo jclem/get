@@ -4,12 +4,14 @@ package writer
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/alecthomas/chroma/formatters"
@@ -204,6 +206,15 @@ func (w *Writer) PrintResponse(resp *http.Response, opts ...PrintOpt) error { //
 	}
 
 	if o.highlight && !o.stream { //nolint:nestif
+		contentLength, err := strconv.Atoi(cmp.Or(resp.Header.Get("Content-Length"), "0"))
+		if err != nil {
+			return fmt.Errorf("could not parse content length: %w", err)
+		}
+
+		if contentLength == 0 {
+			return nil
+		}
+
 		ct := resp.Header.Get("Content-Type")
 
 		mimeType, _, err := mime.ParseMediaType(ct)
