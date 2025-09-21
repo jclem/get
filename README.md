@@ -101,4 +101,6 @@ Flags:
 - Build: `go build -o ./tmp/main ./internal/cmd/main`
 - Test: `go test ./...`
 - Lint: `golangci-lint run` (configured via `.golangci.toml`)
-- Dev loop: `air` (after `mise install` and `lefthook install` for hooks)
+- Tools: `mise install`
+- Hooks: `lefthook install`
+- Dev loop: `air`
