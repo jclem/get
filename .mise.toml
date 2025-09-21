@@ -1,0 +1,5 @@
+[tools]
+air = "1.63"
+go = "1.25"
+golangci-lint = "2.4"
+lefthook = "1.13"

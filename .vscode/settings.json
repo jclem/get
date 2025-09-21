@@ -1,0 +1,5 @@
+{
+	"evenBetterToml.schema.enabled": false,
+	"files.exclude": { "tmp/": true },
+	"go.lintTool": "golangci-lint-v2"
+}

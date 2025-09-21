@@ -1,0 +1,12 @@
+[pre-commit]
+parallel = true
+
+[[pre-commit.jobs]]
+name = "lint"
+run = "golangci-lint run"
+glob = "*.go"
+
+[[pre-commit.jobs]]
+name = "test"
+run = "go test ./..."
+glob = "*.go"

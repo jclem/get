@@ -1,0 +1,47 @@
+version = "2"
+
+[linters]
+default = "all"
+disable = [
+    "cyclop",      # complexity checker; annoying
+    "err113",      # requires defining all errors at package-levle; annoying
+    "funlen",      # function length checker; not worth it
+    "ireturn",     # bans returning interfaces; often unavoidable
+    "lll",         # line length checker; annoying
+    "nlreturn",    # requires newline before return; silly
+    "noinlineerr", # disables if err :=; silly
+    "wsl",         # whitespace checker; annoying
+    "wsl_v5",      # new whitespace checker; annoying
+]
+
+[linters.settings.depguard.rules.all]
+files = ["$all"]
+allow = [
+    "$gostd",
+    "github.com/alecthomas/chroma/v2",
+    "github.com/fatih/color$",
+    "github.com/jclem/get/",
+    "github.com/spf13/cobra$",
+]
+
+[linters.settings.exhaustruct]
+exclude = ["github.com/spf13/cobra\\.Command$"]
+
+[linters.settings.mnd]
+checks = [
+    # "argument", # Remove argument; often used for channel size etc.
+    "case",
+    "condition",
+    "operation",
+    "return",
+    "assign",
+]
+
+[linters.settings.varnamelen]
+ignore-names = [
+    "b",  # buffer
+    "i",  # index
+    "id", # identifier
+    "r",  # reader
+    "w",  # writer
+]
