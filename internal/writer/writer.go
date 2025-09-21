@@ -121,6 +121,72 @@ func WithStream(b bool) func(*writeOpts) {
 	}
 }
 
+// WriteRequest writes out a human-readable representation of an HTTP request.
+func (w *Writer) WriteRequest(r *http.Request, opts ...func(*writeOpts)) error {
+	writeOpts := writeOpts{ //nolint:exhaustruct // we only need some of these
+		highlight: true,
+		format:    true,
+	}
+
+	for _, opt := range opts {
+		opt(&writeOpts)
+	}
+
+	path := r.URL.Path
+	if path == "" {
+		path = "/"
+	}
+
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+
+	if err := w.success("%s %s %s\n", r.Method, path, r.Proto); err != nil {
+		return err
+	}
+
+	for k, v := range r.Header {
+		if err := w.info("%s: ", k); err != nil {
+			return err
+		}
+
+		if err := w.plain(strings.Join(v, ", ") + "\n"); err != nil {
+			return err
+		}
+	}
+
+	body, err := r.GetBody()
+	if err != nil {
+		return fmt.Errorf("get body: %w", err)
+	}
+
+	b, err := io.ReadAll(body)
+	if err != nil {
+		return fmt.Errorf("read body: %w", err)
+	}
+
+	if _, err := w.Write([]byte("\n")); err != nil {
+		return fmt.Errorf("write newline: %w", err)
+	}
+
+	switch {
+	case writeOpts.highlight && w.color:
+		if err := w.highlightBody(r.Header, b, writeOpts); err != nil {
+			return err
+		}
+	default:
+		if err := w.plainBody(r.Header, b, writeOpts); err != nil {
+			return err
+		}
+	}
+
+	if _, err := w.Write([]byte("\n")); err != nil {
+		return fmt.Errorf("write newline: %w", err)
+	}
+
+	return nil
+}
+
 // WriteResponse writes out a human-readable representation of an HTTP response.
 func (w *Writer) WriteResponse(r *http.Response, opts ...func(*writeOpts)) error {
 	writeOpts := writeOpts{
@@ -169,17 +235,17 @@ func (w *Writer) WriteResponse(r *http.Response, opts ...func(*writeOpts)) error
 		}
 
 		if len(b) == 0 {
-			return w.plainBody(r, b, writeOpts)
+			return w.plainBody(r.Header, b, writeOpts)
 		}
 
-		return w.highlightBody(r, b, writeOpts)
+		return w.highlightBody(r.Header, b, writeOpts)
 	default:
 		b, err := io.ReadAll(r.Body)
 		if err != nil {
 			return fmt.Errorf("read body: %w", err)
 		}
 
-		return w.plainBody(r, b, writeOpts)
+		return w.plainBody(r.Header, b, writeOpts)
 	}
 }
 
@@ -191,12 +257,12 @@ func (w *Writer) streamBody(r *http.Response) error {
 	return nil
 }
 
-func (w *Writer) highlightBody(r *http.Response, body []byte, writeOpts writeOpts) error {
-	contentType := r.Header.Get("Content-Type")
+func (w *Writer) highlightBody(h http.Header, body []byte, writeOpts writeOpts) error {
+	contentType := h.Get("Content-Type")
 	mimeType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		slog.Debug("parse media type", "error", err)
-		return w.plainBody(r, body, writeOpts)
+		return w.plainBody(h, body, writeOpts)
 	}
 
 	lexer := lexers.MatchMimeType(mimeType)
@@ -234,8 +300,8 @@ func (w *Writer) highlightBody(r *http.Response, body []byte, writeOpts writeOpt
 	return nil
 }
 
-func (w *Writer) plainBody(r *http.Response, body []byte, writeOpts writeOpts) error {
-	contentType := r.Header.Get("Content-Type")
+func (w *Writer) plainBody(h http.Header, body []byte, writeOpts writeOpts) error {
+	contentType := h.Get("Content-Type")
 	mimeType, _, _ := mime.ParseMediaType(contentType)
 
 	if mimeType == "application/json" && writeOpts.format {

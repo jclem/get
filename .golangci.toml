@@ -4,6 +4,7 @@ version = "2"
 default = "all"
 disable = [
     "cyclop",      # complexity checker; annoying
+    "dupword",     # duplicate word checker; annoying (HTTP headers are called headers)
     "err113",      # requires defining all errors at package-levle; annoying
     "funlen",      # function length checker; not worth it
     "ireturn",     # bans returning interfaces; often unavoidable
@@ -14,6 +15,10 @@ disable = [
     "wsl_v5",      # new whitespace checker; annoying
 ]
 
+[[linters.exclusions.rules]]
+linters = ["gochecknoglobals"]
+path = "internal/parser/parser.go"
+
 [linters.settings.depguard.rules.all]
 files = ["$all"]
 allow = [
@@ -21,7 +26,10 @@ allow = [
     "github.com/alecthomas/chroma/v2",
     "github.com/fatih/color$",
     "github.com/jclem/get/",
+    "github.com/prataprc/goparsec$",
     "github.com/spf13/cobra$",
+    "github.com/stretchr/testify/assert$",
+    "github.com/stretchr/testify/require$",
 ]
 
 [linters.settings.exhaustruct]
@@ -41,7 +49,10 @@ checks = [
 ignore-names = [
     "b",  # buffer
     "i",  # index
+    "k",  # key
     "id", # identifier
+    "ok", # ok
     "r",  # reader
+    "v",  # value
     "w",  # writer
 ]
