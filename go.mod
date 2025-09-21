@@ -3,7 +3,6 @@ module github.com/jclem/get
 go 1.25.1
 
 require (
-	github.com/gorilla/schema v1.4.1
 	github.com/prataprc/goparsec v0.0.0-20211219142520-daac0e635e7e
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
