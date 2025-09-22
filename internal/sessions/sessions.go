@@ -98,8 +98,8 @@ func (m *Manager) Write() error {
 }
 
 // WriteRequest writes the session for a given request.
-func (m *Manager) WriteRequest(r *http.Request) error {
-	session := m.Get(r.URL.Host)
+func (m *Manager) WriteRequest(sessionName string, r *http.Request) error {
+	session := m.Get(sessionName)
 	if session == nil {
 		session = NewSession()
 	}
@@ -110,7 +110,7 @@ func (m *Manager) WriteRequest(r *http.Request) error {
 		}
 	}
 
-	m.sessions[r.URL.Host] = *session
+	m.sessions[sessionName] = *session
 
 	if err := m.Write(); err != nil {
 		return err
@@ -119,9 +119,9 @@ func (m *Manager) WriteRequest(r *http.Request) error {
 	return nil
 }
 
-// Get gets a session for a given host (or host:port).
-func (m *Manager) Get(host string) *Session {
-	session, ok := m.sessions[host]
+// Get gets a session for a given session name.
+func (m *Manager) Get(sessionName string) *Session {
+	session, ok := m.sessions[sessionName]
 	if !ok {
 		return nil
 	}

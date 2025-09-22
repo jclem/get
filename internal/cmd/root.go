@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ type rootFlags struct {
 	NoColor     bool   `mapstructure:"no-color"`
 	Form        bool   `mapstructure:"form"`
 	NoSession   bool   `mapstructure:"no-session"`
+	SessionName string `mapstructure:"session"`
 	NoHeaders   bool   `mapstructure:"no-headers"`
 	NoHighlight bool   `mapstructure:"no-highlight"`
 	NoFormat    bool   `mapstructure:"no-format"`
@@ -37,6 +39,7 @@ const (
 	flagNoColor     = "no-color"
 	flagForm        = "form"
 	flagNoSession   = "no-session"
+	flagSessionName = "session"
 	flagNoHeaders   = "no-headers"
 	flagNoHighlight = "no-highlight"
 	flagNoFormat    = "no-format"
@@ -119,6 +122,10 @@ EXAMPLES:
 			err = viper.Unmarshal(&flags)
 			cobra.CheckErr(err)
 
+			if flags.SessionName != "" && flags.NoSession {
+				cobra.CheckErr(errors.New("session name provided but session is disabled"))
+			}
+
 			cmd.SetContext(withRootFlags(cmd.Context(), flags))
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -140,9 +147,11 @@ EXAMPLES:
 			sessionManager, err := sessions.NewManager()
 			cobra.CheckErr(err)
 
+			sessionName := cmp.Or(flags.SessionName, reqURL.Host)
+
 			var session *sessions.Session
 			if !flags.NoSession {
-				session = sessionManager.Get(reqURL.Host)
+				session = sessionManager.Get(sessionName)
 			}
 
 			method, err := getMethod(cmd, flags.HTTPMethod, input.Body != nil)
@@ -155,7 +164,7 @@ EXAMPLES:
 			cobra.CheckErr(err)
 
 			if !flags.NoSession {
-				err = sessionManager.WriteRequest(req)
+				err = sessionManager.WriteRequest(sessionName, req)
 				cobra.CheckErr(err)
 			}
 
@@ -192,6 +201,7 @@ EXAMPLES:
 	cmd.Flags().BoolP(flagNoColor, "C", false, "Do not use color in the output (NO_COLOR is also respected)")
 	cmd.Flags().Bool(flagForm, false, "Format the request body as a form, instead of JSON")
 	cmd.Flags().BoolP(flagNoSession, "S", false, "Do not read or save the session")
+	cmd.Flags().String(flagSessionName, "", "The name of the session to use")
 	cmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
 	cmd.Flags().BoolP(flagNoHighlight, "L", false, "Do not highlight the request/response body")
 	cmd.Flags().BoolP(flagNoFormat, "F", false, "Do not format the request/response body")
@@ -204,30 +214,22 @@ EXAMPLES:
 }
 
 func getMethod(cmd *cobra.Command, methodFlag string, hasBody bool) (string, error) {
-	if !cmd.Flags().Changed("method") && hasBody {
+	if !cmd.Flags().Changed(flagMethod) && hasBody {
 		return http.MethodPost, nil
 	}
 
 	method := strings.ToUpper(methodFlag)
 
 	switch method {
-	case http.MethodConnect:
-		fallthrough
-	case http.MethodDelete:
-		fallthrough
-	case http.MethodGet:
-		fallthrough
-	case http.MethodHead:
-		fallthrough
-	case http.MethodOptions:
-		fallthrough
-	case http.MethodPatch:
-		fallthrough
-	case http.MethodPost:
-		fallthrough
-	case http.MethodPut:
-		fallthrough
-	case http.MethodTrace:
+	case http.MethodConnect,
+		http.MethodDelete,
+		http.MethodGet,
+		http.MethodHead,
+		http.MethodOptions,
+		http.MethodPatch,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodTrace:
 		return method, nil
 	}
 
@@ -241,16 +243,16 @@ func getURL(arg string) (*url.URL, error) {
 		urlStr = "http://localhost" + arg
 	case strings.HasPrefix(arg, "localhost"): // Add http:// to the beginning of localhost.
 		urlStr = "http://" + arg
-	case strings.HasPrefix(arg, "http") || strings.HasPrefix(arg, "https"): // Arg is already a valid URL.
+	case strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://"): // Arg is already a valid URL.
 		urlStr = arg
 	default: // Arg is just a domain; use https.
 		urlStr = "https://" + arg
 	}
 
-	url, err := url.Parse(urlStr)
+	u, err := url.Parse(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("parse url: %w", err)
 	}
 
-	return url, nil
+	return u, nil
 }
