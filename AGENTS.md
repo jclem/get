@@ -12,6 +12,7 @@
 - Test: `go test ./...` (coverage: `go test -cover ./...`)
 - Lint: `golangci-lint run` (configured via `.golangci.toml`)
 - Dev loop: `air` (reads `.air.toml`). Install pinned tools with `mise install` (Go/Air/golangci‑lint/lefthook). Enable hooks with `lefthook install`.
+ - Always check the linter after making changes: `golangci-lint run` (CI enforces a clean lint run).
 
 ## Coding Style & Naming Conventions
 - Use standard Go formatting: `go fmt ./...` before pushing.

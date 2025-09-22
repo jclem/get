@@ -91,6 +91,7 @@ Flags:
   -F, --no-format          Do not format the request/response body
   -H, --no-headers         Do not print the response headers
   -L, --no-highlight       Do not highlight the request/response body
+  -R, --no-redirects       Do not follow redirects
   -S, --no-session         Do not read or save the session
   -A, --save-all-headers   Save all headers to the session
       --session string     The name of the session to use
