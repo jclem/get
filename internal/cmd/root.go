@@ -1,18 +1,16 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 
+	"github.com/jclem/get/internal/builder"
 	"github.com/jclem/get/internal/parser"
+	"github.com/jclem/get/internal/sessions"
 	"github.com/jclem/get/internal/writer"
 	"github.com/spf13/cobra"
 )
@@ -76,52 +74,39 @@ EXAMPLES:
 				slog.SetLogLoggerLevel(slog.LevelDebug)
 			}
 
+			reqURL, err := getURL(args[0])
+			cobra.CheckErr(err)
+
 			input, err := parser.ParseInput(args[1:])
+			cobra.CheckErr(err)
+
+			noSession, err := cmd.Flags().GetBool("no-session")
+			cobra.CheckErr(err)
+
+			sessionManager, err := sessions.NewManager()
+			cobra.CheckErr(err)
+
+			var session *sessions.Session
+			if !noSession {
+				session = sessionManager.Get(reqURL.Host)
+			}
+
+			method, err := getMethod(cmd, input.Body != nil)
 			cobra.CheckErr(err)
 
 			useFormBody, err := cmd.Flags().GetBool("form")
 			cobra.CheckErr(err)
 
-			var body io.Reader
-			if input.Body != nil {
-				if useFormBody {
-					body, err = marshalForm(input.Body)
-					cobra.CheckErr(err)
-				} else {
-					b, err := json.Marshal(input.Body)
-					cobra.CheckErr(err)
-					body = bytes.NewBuffer(b)
-				}
-			}
-
-			method, err := getMethod(cmd, body != nil)
-			cobra.CheckErr(err)
-			reqURL := getURL(args[0])
-
-			req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
+			req, err := builder.Build(ctx, *reqURL, *input,
+				builder.WithHTTPMethod(method),
+				builder.WithFormBody(useFormBody),
+				builder.WithSession(session))
 			cobra.CheckErr(err)
 
-			for _, header := range input.Headers {
-				req.Header.Add(header.Name, header.Value)
+			if !noSession {
+				err = sessionManager.WriteRequest(req)
+				cobra.CheckErr(err)
 			}
-
-			if req.Header.Get("Content-Type") == "" && body != nil {
-				if useFormBody {
-					req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-				} else {
-					req.Header.Add("Content-Type", "application/json")
-				}
-			}
-
-			if req.Header.Get("Host") == "" {
-				req.Header.Add("Host", req.URL.Host)
-			}
-
-			query := req.URL.Query()
-			for _, param := range input.QueryParams {
-				query.Add(param.Name, param.Value)
-			}
-			req.URL.RawQuery = query.Encode()
 
 			noColor := os.Getenv("NO_COLOR") != ""
 			if cmd.Flags().Changed("no-color") {
@@ -170,6 +155,7 @@ EXAMPLES:
 	cmd.Flags().StringP("method", "X", http.MethodGet, "The HTTP method to use")
 	cmd.Flags().BoolP("no-color", "C", false, "Do not use color in the output (NO_COLOR is also respected)")
 	cmd.Flags().Bool("form", false, "Format the request body as a form, instead of JSON")
+	cmd.Flags().BoolP("no-session", "S", false, "Do not read or save the session")
 	cmd.Flags().BoolP("no-headers", "H", false, "Do not print the response headers")
 	cmd.Flags().BoolP("no-highlight", "L", false, "Do not highlight the request/response body")
 	cmd.Flags().BoolP("no-format", "F", false, "Do not format the request/response body")
@@ -215,45 +201,23 @@ func getMethod(cmd *cobra.Command, hasBody bool) (string, error) {
 	return "", fmt.Errorf("invalid method: %s", methodFlag)
 }
 
-func getURL(arg string) string {
+func getURL(arg string) (*url.URL, error) {
+	var urlStr string
 	switch {
 	case strings.HasPrefix(arg, ":"): // Arg is just a port; use localhost.
-		return "http://localhost" + arg
+		urlStr = "http://localhost" + arg
 	case strings.HasPrefix(arg, "localhost"): // Add http:// to the beginning of localhost.
-		return "http://" + arg
+		urlStr = "http://" + arg
 	case strings.HasPrefix(arg, "http") || strings.HasPrefix(arg, "https"): // Arg is already a valid URL.
-		return arg
+		urlStr = arg
 	default: // Arg is just a domain; use https.
-		return "https://" + arg
-	}
-}
-
-var errFormBody = errors.New("form body values must be strings or string arrays")
-
-func marshalForm(body any) (io.Reader, error) {
-	form := url.Values{}
-	m, ok := body.(map[string]any)
-	if !ok {
-		return nil, errors.New("body is not a map[string]any")
+		urlStr = "https://" + arg
 	}
 
-	for k, v := range m {
-		switch v := v.(type) {
-		case string:
-			form.Add(k, v)
-		case []any:
-			for _, v := range v {
-				v, ok := v.(string)
-				if !ok {
-					return nil, errFormBody
-				}
-
-				form.Add(k, v)
-			}
-		default:
-			return nil, errFormBody
-		}
+	url, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse url: %w", err)
 	}
 
-	return bytes.NewBufferString(form.Encode()), nil
+	return url, nil
 }

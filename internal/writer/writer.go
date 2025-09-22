@@ -155,6 +155,14 @@ func (w *Writer) WriteRequest(r *http.Request, opts ...func(*writeOpts)) error {
 		}
 	}
 
+	if r.Body == nil {
+		if _, err := w.Write([]byte("\n")); err != nil {
+			return fmt.Errorf("write newline: %w", err)
+		}
+
+		return nil
+	}
+
 	body, err := r.GetBody()
 	if err != nil {
 		return fmt.Errorf("get body: %w", err)
