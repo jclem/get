@@ -20,20 +20,21 @@ import (
 )
 
 type rootFlags struct {
-    HTTPMethod     string `mapstructure:"method"`
-    NoColor        bool   `mapstructure:"no-color"`
-    Form           bool   `mapstructure:"form"`
-    NoSession      bool   `mapstructure:"no-session"`
-    SessionName    string `mapstructure:"session"`
-    NoHeaders      bool   `mapstructure:"no-headers"`
-    NoHighlight    bool   `mapstructure:"no-highlight"`
-    NoRedirects    bool   `mapstructure:"no-redirects"`
-    NoFormat       bool   `mapstructure:"no-format"`
-    NoBody         bool   `mapstructure:"no-body"`
-    Stream         bool   `mapstructure:"stream"`
-    Debug          bool   `mapstructure:"debug"`
-    Verbose        bool   `mapstructure:"verbose"`
-    SaveAllHeaders bool   `mapstructure:"save-all-headers"`
+	HTTPMethod     string `mapstructure:"method"`
+	NoColor        bool   `mapstructure:"no-color"`
+	Form           bool   `mapstructure:"form"`
+	NoSession      bool   `mapstructure:"no-session"`
+	SessionName    string `mapstructure:"session"`
+	NoHeaders      bool   `mapstructure:"no-headers"`
+	NoHighlight    bool   `mapstructure:"no-highlight"`
+	NoRedirects    bool   `mapstructure:"no-redirects"`
+	MaxRedirects   int    `mapstructure:"max-redirects"`
+	NoFormat       bool   `mapstructure:"no-format"`
+	NoBody         bool   `mapstructure:"no-body"`
+	Stream         bool   `mapstructure:"stream"`
+	Debug          bool   `mapstructure:"debug"`
+	Verbose        bool   `mapstructure:"verbose"`
+	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
 }
 
 const (
@@ -43,14 +44,15 @@ const (
 	flagNoSession      = "no-session"
 	flagSessionName    = "session"
 	flagNoHeaders      = "no-headers"
-    flagNoHighlight    = "no-highlight"
-    flagNoRedirects    = "no-redirects"
-    flagNoFormat       = "no-format"
-    flagNoBody         = "no-body"
-    flagStream         = "stream"
-    flagDebug          = "debug"
-    flagVerbose        = "verbose"
-    flagSaveAllHeaders = "save-all-headers"
+	flagNoHighlight    = "no-highlight"
+	flagNoRedirects    = "no-redirects"
+	flagMaxRedirects   = "max-redirects"
+	flagNoFormat       = "no-format"
+	flagNoBody         = "no-body"
+	flagStream         = "stream"
+	flagDebug          = "debug"
+	flagVerbose        = "verbose"
+	flagSaveAllHeaders = "save-all-headers"
 )
 
 type rootFlagsContextKey struct{}
@@ -140,6 +142,10 @@ EXAMPLES:
 				cobra.CheckErr(errors.New("session name provided but session is disabled"))
 			}
 
+			if cmd.Flags().Changed(flagMaxRedirects) && cmd.Flags().Changed(flagNoRedirects) {
+				cobra.CheckErr(errors.New("max redirects and no redirects cannot be used together"))
+			}
+
 			cmd.SetContext(withRootFlags(cmd.Context(), flags))
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -199,17 +205,28 @@ EXAMPLES:
 				cobra.CheckErr(err)
 			}
 
-            client := *http.DefaultClient
-            if flags.NoRedirects {
-                client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-                    // Do not follow redirects; return the last response.
-                    return http.ErrUseLastResponse
-                }
-            }
+			client := *http.DefaultClient
+			if flags.NoRedirects {
+				client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+					return http.ErrUseLastResponse
+				}
+			} else {
+				switch flags.MaxRedirects {
+				case 0:
+					client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return nil }
+				default:
+					client.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+						if len(via) > flags.MaxRedirects {
+							return http.ErrUseLastResponse
+						}
+						return nil
+					}
+				}
+			}
 
-            resp, err := client.Do(req)
-            cobra.CheckErr(err)
-            defer func() { cobra.CheckErr(resp.Body.Close()) }()
+			resp, err := client.Do(req)
+			cobra.CheckErr(err)
+			defer func() { cobra.CheckErr(resp.Body.Close()) }()
 
 			err = w.WriteResponse(resp,
 				writer.WithHeaders(!flags.NoHeaders),
@@ -228,9 +245,10 @@ EXAMPLES:
 	cmd.Flags().String(flagSessionName, "", "The name of the session to use")
 	cmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
 	cmd.Flags().BoolP(flagNoHighlight, "L", false, "Do not highlight the request/response body")
-    cmd.Flags().BoolP(flagNoFormat, "F", false, "Do not format the request/response body")
-    cmd.Flags().BoolP(flagNoRedirects, "R", false, "Do not follow redirects")
-    cmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
+	cmd.Flags().BoolP(flagNoFormat, "F", false, "Do not format the request/response body")
+	cmd.Flags().BoolP(flagNoRedirects, "R", false, "Do not follow redirects")
+	cmd.Flags().Int(flagMaxRedirects, 10, "Maximum redirects to follow (0 means no max)")
+	cmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
 	cmd.Flags().BoolP(flagStream, "s", false, "Stream the response")
 	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
 	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")

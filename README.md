@@ -82,21 +82,22 @@ Usage:
   get <url> [request-options] [flags]
 
 Flags:
-  -d, --debug              Debug mode
-      --form               Format the request body as a form, instead of JSON
-  -h, --help               help for get
-  -X, --method string      The HTTP method to use (default "GET")
-  -B, --no-body            Do not print the response body
-  -C, --no-color           Do not use color in the output (NO_COLOR is also respected)
-  -F, --no-format          Do not format the request/response body
-  -H, --no-headers         Do not print the response headers
-  -L, --no-highlight       Do not highlight the request/response body
-  -R, --no-redirects       Do not follow redirects
-  -S, --no-session         Do not read or save the session
-  -A, --save-all-headers   Save all headers to the session
-      --session string     The name of the session to use
-  -s, --stream             Stream the response
-  -v, --verbose            Verbose mode (prints the request)
+  -d, --debug               Debug mode
+      --form                Format the request body as a form, instead of JSON
+  -h, --help                help for get
+      --max-redirects int   Maximum redirects to follow (0 means no max) (default 10)
+  -X, --method string       The HTTP method to use (default "GET")
+  -B, --no-body             Do not print the response body
+  -C, --no-color            Do not use color in the output (NO_COLOR is also respected)
+  -F, --no-format           Do not format the request/response body
+  -H, --no-headers          Do not print the response headers
+  -L, --no-highlight        Do not highlight the request/response body
+  -R, --no-redirects        Do not follow redirects
+  -S, --no-session          Do not read or save the session
+  -A, --save-all-headers    Save all headers to the session
+      --session string      The name of the session to use
+  -s, --stream              Stream the response
+  -v, --verbose             Verbose mode (prints the request)
 ```
 
 ## Examples
