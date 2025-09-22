@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -55,23 +54,10 @@ const (
 	flagSaveAllHeaders = "save-all-headers"
 )
 
-type rootFlagsContextKey struct{}
-
-func withRootFlags(ctx context.Context, flags rootFlags) context.Context {
-	return context.WithValue(ctx, rootFlagsContextKey{}, flags)
-}
-
-func getRootFlags(ctx context.Context) (*rootFlags, error) {
-	flags, ok := ctx.Value(rootFlagsContextKey{}).(rootFlags)
-	if !ok {
-		return nil, errors.New("root flags not found")
-	}
-
-	return &flags, nil
-}
-
 // NewRootCmd creates the root Cobra command for the get CLI.
 func NewRootCmd() *cobra.Command {
+	var flags rootFlags
+
 	cmd := &cobra.Command{
 		Use:   "get <url> [request-options]",
 		Short: "Get is a CLI for making HTTP requests",
@@ -138,7 +124,6 @@ EXAMPLES:
 			err := v.BindPFlags(cmd.Flags())
 			cobra.CheckErr(err)
 
-			var flags rootFlags
 			err = v.Unmarshal(&flags)
 			cobra.CheckErr(err)
 
@@ -149,14 +134,9 @@ EXAMPLES:
 			if cmd.Flags().Changed(flagMaxRedirects) && cmd.Flags().Changed(flagNoRedirects) {
 				cobra.CheckErr(errors.New("max redirects and no redirects cannot be used together"))
 			}
-
-			cmd.SetContext(withRootFlags(cmd.Context(), flags))
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
-
-			flags, err := getRootFlags(ctx)
-			cobra.CheckErr(err)
 
 			if flags.Debug {
 				slog.SetLogLoggerLevel(slog.LevelDebug)
@@ -209,7 +189,7 @@ EXAMPLES:
 				cobra.CheckErr(err)
 			}
 
-			client := getClient(*flags)
+			client := getClient(flags)
 			resp, err := client.Do(req)
 			cobra.CheckErr(err)
 			defer func() { cobra.CheckErr(resp.Body.Close()) }()
@@ -239,6 +219,9 @@ EXAMPLES:
 	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
 	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")
 	cmd.Flags().BoolP(flagSaveAllHeaders, "A", false, "Save all headers to the session")
+
+	// Subcommands
+	cmd.AddCommand(NewSessionsCmd())
 
 	return cmd
 }

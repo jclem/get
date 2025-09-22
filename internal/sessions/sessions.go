@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // A Session represents a single session configuration.
@@ -35,31 +36,44 @@ type Manager struct {
 	writableHeaders map[string]struct{}
 }
 
-// NewManager creates a new Sessions.
-func NewManager() (*Manager, error) {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	configDir := filepath.Join(configHome, "get")
-	sessionsPath := filepath.Join(configDir, "sessions.json")
-
-	if _, err := os.Stat(configDir); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("stat sessions path: %w", err)
-		}
-
-		if err := os.MkdirAll(configDir, 0o700); err != nil {
-			return nil, fmt.Errorf("mkdir all config dir: %w", err)
-		}
+// WithSessionsPath sets the path to the sessions file.
+func WithSessionsPath(s string) func(*Manager) {
+	return func(o *Manager) {
+		o.path = s
 	}
+}
 
+// NewManager creates a new Sessions.
+func NewManager(mOpts ...func(*Manager)) (*Manager, error) {
 	manager := Manager{
 		sessions: make(map[string]Session),
-		path:     sessionsPath,
+		path:     "",
 		writableHeaders: map[string]struct{}{
 			http.CanonicalHeaderKey("Authorization"): {},
 		},
 	}
 
-	if _, err := os.Stat(sessionsPath); err != nil {
+	for _, opt := range mOpts {
+		opt(&manager)
+	}
+
+	if manager.path == "" { //nolint:nestif // easier to nest this
+		configHome := os.Getenv("XDG_CONFIG_HOME")
+		configDir := filepath.Join(configHome, "get")
+		manager.path = filepath.Join(configDir, "sessions.json")
+
+		if _, err := os.Stat(configDir); err != nil {
+			if !os.IsNotExist(err) {
+				return nil, fmt.Errorf("stat sessions path: %w", err)
+			}
+
+			if err := os.MkdirAll(configDir, 0o700); err != nil {
+				return nil, fmt.Errorf("mkdir all config dir: %w", err)
+			}
+		}
+	}
+
+	if _, err := os.Stat(manager.path); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("stat sessions path: %w", err)
 		}
@@ -97,6 +111,54 @@ func (m *Manager) Write() error {
 		return fmt.Errorf("write sessions: %w", err)
 	}
 
+	return nil
+}
+
+// GetAll returns a deep copy of all sessions. If reveal is false, header values
+// are redacted by replacing each value with asterisks of the same length.
+func (m *Manager) GetAll(reveal bool) map[string]Session {
+	out := make(map[string]Session, len(m.sessions))
+	for name, sess := range m.sessions {
+		out[name] = copySession(sess, reveal)
+	}
+	return out
+}
+
+// Delete removes a session by name and persists the change.
+func (m *Manager) Delete(name string) error {
+	if _, ok := m.sessions[name]; !ok {
+		return fmt.Errorf("session not found: %s", name)
+	}
+	delete(m.sessions, name)
+	if err := m.Write(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func copySession(s Session, reveal bool) Session {
+	headers := make(map[string][]string, len(s.Headers))
+	for k, vals := range s.Headers {
+		// Copy the slice
+		dst := make([]string, len(vals))
+		for i, v := range vals {
+			if reveal {
+				dst[i] = v
+				continue
+			}
+			dst[i] = strings.Repeat("*", len(v))
+		}
+		headers[http.CanonicalHeaderKey(k)] = dst
+	}
+	return Session{Headers: headers}
+}
+
+// Clear removes all sessions and persists the change.
+func (m *Manager) Clear() error {
+	m.sessions = make(map[string]Session)
+	if err := m.Write(); err != nil {
+		return err
+	}
 	return nil
 }
 

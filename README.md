@@ -80,6 +80,12 @@ EXAMPLES:
 
 Usage:
   get <url> [request-options] [flags]
+  get [command]
+
+Available Commands:
+  completion  Generate the autocompletion script for the specified shell
+  help        Help about any command
+  sessions    Manage sessions
 
 Flags:
   -d, --debug               Debug mode
@@ -98,6 +104,8 @@ Flags:
       --session string      The name of the session to use
   -s, --stream              Stream the response
   -v, --verbose             Verbose mode (prints the request)
+
+Use "get [command] --help" for more information about a command.
 ```
 
 ## Examples

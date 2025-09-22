@@ -11,48 +11,44 @@ import (
 	"testing"
 
 	cmdpkg "github.com/jclem/get/internal/cmd"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoRedirects_StopsOnFirstRedirect(t *testing.T) {
 	t.Parallel()
 
 	var finalHit bool
-	srv := newRedirectServer(0, &finalHit)
+	srv := newRedirectServer(t, 0, &finalHit)
 	t.Cleanup(srv.Close)
 
 	// -R should not follow the first 302.
 	runCLI(t, "-R", srv.URL+"/r0")
 
-	if finalHit == true {
-		t.Fatalf("expected no final hit")
-	}
+	assert.False(t, finalHit)
 }
 
 func TestMaxRedirects_StopsAtN(t *testing.T) {
 	t.Parallel()
 	var finalHit bool
-	srv := newRedirectServer(5, &finalHit)
+	srv := newRedirectServer(t, 5, &finalHit)
 	t.Cleanup(srv.Close)
 
 	// Allow at most 2 redirects. Chain has 4 redirects then final; should stop early.
 	runCLI(t, "--max-redirects=2", srv.URL+"/r0")
 
-	if finalHit == true {
-		t.Fatalf("expected no final hit")
-	}
+	assert.False(t, finalHit)
 }
 
 func TestMaxRedirects_UnlimitedFollowsAll(t *testing.T) {
 	t.Parallel()
 	var finalHit bool
-	srv := newRedirectServer(15, &finalHit)
+	srv := newRedirectServer(t, 15, &finalHit)
 	t.Cleanup(srv.Close)
 
 	runCLI(t, "--max-redirects=0", srv.URL+"/r0")
 
-	if finalHit == false {
-		t.Fatalf("expected final hit")
-	}
+	assert.True(t, finalHit)
 }
 
 func runCLI(t *testing.T, args ...string) {
@@ -63,9 +59,8 @@ func runCLI(t *testing.T, args ...string) {
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs(args)
 
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("execute: %v", err)
-	}
+	err := cmd.ExecuteContext(context.Background())
+	require.NoError(t, err)
 }
 
 // newRedirectServer creates an HTTP server that serves a chain of redirects of
@@ -74,7 +69,9 @@ func runCLI(t *testing.T, args ...string) {
 // exhausted, /final returns 200.
 //
 // This is not thread-safe; create a new server for each test.
-func newRedirectServer(count int, finalHit *bool) *httptest.Server {
+func newRedirectServer(t *testing.T, count int, finalHit *bool) *httptest.Server {
+	t.Helper()
+
 	mux := http.NewServeMux()
 
 	// Handlers for each redirect step: /r0 -> /r1 -> ... -> /r{n-1} -> /final

@@ -2,9 +2,9 @@
 package cmd
 
 import (
-    "context"
+	"context"
 
-    "github.com/spf13/cobra"
+	"github.com/spf13/cobra"
 )
 
 // ExecuteContext creates a new root command and executes it with the given
@@ -13,6 +13,6 @@ import (
 // This will run the CLI with any flags and arguments given to the current
 // process.
 func ExecuteContext(ctx context.Context) {
-    err := NewRootCmd().ExecuteContext(ctx)
-    cobra.CheckErr(err)
+	err := NewRootCmd().ExecuteContext(ctx) //nolint:contextcheck // wrong
+	cobra.CheckErr(err)
 }
