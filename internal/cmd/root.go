@@ -70,7 +70,8 @@ func getRootFlags(ctx context.Context) (*rootFlags, error) {
 	return &flags, nil
 }
 
-func newRootCmd() *cobra.Command {
+// NewRootCmd creates the root Cobra command for the get CLI.
+func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <url> [request-options]",
 		Short: "Get is a CLI for making HTTP requests",
@@ -131,11 +132,14 @@ EXAMPLES:
   get -d -X POST api.example.com/upload`,
 		Args: cobra.MinimumNArgs(1),
 		PreRun: func(cmd *cobra.Command, _ []string) {
-			err := viper.BindPFlags(cmd.Flags())
+			// Using a new Viper instance allows for parallel testing.
+			v := viper.New()
+
+			err := v.BindPFlags(cmd.Flags())
 			cobra.CheckErr(err)
 
 			var flags rootFlags
-			err = viper.Unmarshal(&flags)
+			err = v.Unmarshal(&flags)
 			cobra.CheckErr(err)
 
 			if flags.SessionName != "" && flags.NoSession {
@@ -205,25 +209,7 @@ EXAMPLES:
 				cobra.CheckErr(err)
 			}
 
-			client := *http.DefaultClient
-			if flags.NoRedirects {
-				client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-					return http.ErrUseLastResponse
-				}
-			} else {
-				switch flags.MaxRedirects {
-				case 0:
-					client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return nil }
-				default:
-					client.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
-						if len(via) > flags.MaxRedirects {
-							return http.ErrUseLastResponse
-						}
-						return nil
-					}
-				}
-			}
-
+			client := getClient(*flags)
 			resp, err := client.Do(req)
 			cobra.CheckErr(err)
 			defer func() { cobra.CheckErr(resp.Body.Close()) }()
@@ -299,4 +285,28 @@ func getURL(arg string) (*url.URL, error) {
 	}
 
 	return u, nil
+}
+
+func getClient(flags rootFlags) *http.Client {
+	client := *http.DefaultClient
+
+	if flags.NoRedirects {
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	} else {
+		switch flags.MaxRedirects {
+		case 0:
+			client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return nil }
+		default:
+			client.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+				if len(via) > flags.MaxRedirects {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			}
+		}
+	}
+
+	return &client
 }

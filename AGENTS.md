@@ -25,6 +25,7 @@
 - Frameworks: standard `testing` with `testify/assert` and `testify/require`.
 - Name tests clearly (e.g., `TestParseInput`). Avoid network calls; keep unit tests deterministic.
 - Run `go test ./...` locally; ensure coverage meaningfully exercises new code.
+- Use a fresh Viper instance per command in tests to avoid shared global state (e.g., `v := viper.New(); v.BindPFlags(cmd.Flags()); v.Unmarshal(&flags)`).
 
 ## Commit & Pull Request Guidelines
 - Commits: imperative, concise subject (e.g., `Add parsing and writing`); include rationale in the body when useful.
