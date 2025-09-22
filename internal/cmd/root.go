@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,7 +15,51 @@ import (
 	"github.com/jclem/get/internal/sessions"
 	"github.com/jclem/get/internal/writer"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
+
+type rootFlags struct {
+	HTTPMethod  string `mapstructure:"method"`
+	NoColor     bool   `mapstructure:"no-color"`
+	Form        bool   `mapstructure:"form"`
+	NoSession   bool   `mapstructure:"no-session"`
+	NoHeaders   bool   `mapstructure:"no-headers"`
+	NoHighlight bool   `mapstructure:"no-highlight"`
+	NoFormat    bool   `mapstructure:"no-format"`
+	NoBody      bool   `mapstructure:"no-body"`
+	Stream      bool   `mapstructure:"stream"`
+	Debug       bool   `mapstructure:"debug"`
+	Verbose     bool   `mapstructure:"verbose"`
+}
+
+const (
+	flagMethod      = "method"
+	flagNoColor     = "no-color"
+	flagForm        = "form"
+	flagNoSession   = "no-session"
+	flagNoHeaders   = "no-headers"
+	flagNoHighlight = "no-highlight"
+	flagNoFormat    = "no-format"
+	flagNoBody      = "no-body"
+	flagStream      = "stream"
+	flagDebug       = "debug"
+	flagVerbose     = "verbose"
+)
+
+type rootFlagsContextKey struct{}
+
+func withRootFlags(ctx context.Context, flags rootFlags) context.Context {
+	return context.WithValue(ctx, rootFlagsContextKey{}, flags)
+}
+
+func getRootFlags(ctx context.Context) (*rootFlags, error) {
+	flags, ok := ctx.Value(rootFlagsContextKey{}).(rootFlags)
+	if !ok {
+		return nil, errors.New("root flags not found")
+	}
+
+	return &flags, nil
+}
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -65,12 +111,23 @@ EXAMPLES:
   # Debug mode for troubleshooting
   get -d -X POST api.example.com/upload`,
 		Args: cobra.MinimumNArgs(1),
+		PreRun: func(cmd *cobra.Command, _ []string) {
+			err := viper.BindPFlags(cmd.Flags())
+			cobra.CheckErr(err)
+
+			var flags rootFlags
+			err = viper.Unmarshal(&flags)
+			cobra.CheckErr(err)
+
+			cmd.SetContext(withRootFlags(cmd.Context(), flags))
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
 
-			debug, err := cmd.Flags().GetBool("debug")
+			flags, err := getRootFlags(ctx)
 			cobra.CheckErr(err)
-			if debug {
+
+			if flags.Debug {
 				slog.SetLogLoggerLevel(slog.LevelDebug)
 			}
 
@@ -80,54 +137,40 @@ EXAMPLES:
 			input, err := parser.ParseInput(args[1:])
 			cobra.CheckErr(err)
 
-			noSession, err := cmd.Flags().GetBool("no-session")
-			cobra.CheckErr(err)
-
 			sessionManager, err := sessions.NewManager()
 			cobra.CheckErr(err)
 
 			var session *sessions.Session
-			if !noSession {
+			if !flags.NoSession {
 				session = sessionManager.Get(reqURL.Host)
 			}
 
-			method, err := getMethod(cmd, input.Body != nil)
-			cobra.CheckErr(err)
-
-			useFormBody, err := cmd.Flags().GetBool("form")
+			method, err := getMethod(cmd, flags.HTTPMethod, input.Body != nil)
 			cobra.CheckErr(err)
 
 			req, err := builder.Build(ctx, *reqURL, *input,
 				builder.WithHTTPMethod(method),
-				builder.WithFormBody(useFormBody),
+				builder.WithFormBody(flags.Form),
 				builder.WithSession(session))
 			cobra.CheckErr(err)
 
-			if !noSession {
+			if !flags.NoSession {
 				err = sessionManager.WriteRequest(req)
 				cobra.CheckErr(err)
 			}
 
 			noColor := os.Getenv("NO_COLOR") != ""
-			if cmd.Flags().Changed("no-color") {
-				noColor, err = cmd.Flags().GetBool("no-color")
-				cobra.CheckErr(err)
+			if cmd.Flags().Changed(flagNoColor) {
+				noColor = flags.NoColor
 			}
 
 			w := writer.NewWriter(cmd.OutOrStdout(),
 				writer.WithColor(!noColor))
 
-			verbose, err := cmd.Flags().GetBool("verbose")
-			cobra.CheckErr(err)
-			noHighlight, err := cmd.Flags().GetBool("no-highlight")
-			cobra.CheckErr(err)
-			noFormat, err := cmd.Flags().GetBool("no-format")
-			cobra.CheckErr(err)
-
-			if verbose {
+			if flags.Verbose {
 				err := w.WriteRequest(req,
-					writer.WithHighlight(!noHighlight),
-					writer.WithFormat(!noFormat))
+					writer.WithHighlight(!flags.NoHighlight),
+					writer.WithFormat(!flags.NoFormat))
 				cobra.CheckErr(err)
 			}
 
@@ -135,45 +178,35 @@ EXAMPLES:
 			cobra.CheckErr(err)
 			defer func() { cobra.CheckErr(resp.Body.Close()) }()
 
-			noHeaders, err := cmd.Flags().GetBool("no-headers")
-			cobra.CheckErr(err)
-			noBody, err := cmd.Flags().GetBool("no-body")
-			cobra.CheckErr(err)
-			stream, err := cmd.Flags().GetBool("stream")
-			cobra.CheckErr(err)
-
 			err = w.WriteResponse(resp,
-				writer.WithHeaders(!noHeaders),
-				writer.WithBody(!noBody),
-				writer.WithHighlight(!noHighlight),
-				writer.WithFormat(!noFormat),
-				writer.WithStream(stream))
+				writer.WithHeaders(!flags.NoHeaders),
+				writer.WithBody(!flags.NoBody),
+				writer.WithHighlight(!flags.NoHighlight),
+				writer.WithFormat(!flags.NoFormat),
+				writer.WithStream(flags.Stream))
 			cobra.CheckErr(err)
 		},
 	}
 
-	cmd.Flags().StringP("method", "X", http.MethodGet, "The HTTP method to use")
-	cmd.Flags().BoolP("no-color", "C", false, "Do not use color in the output (NO_COLOR is also respected)")
-	cmd.Flags().Bool("form", false, "Format the request body as a form, instead of JSON")
-	cmd.Flags().BoolP("no-session", "S", false, "Do not read or save the session")
-	cmd.Flags().BoolP("no-headers", "H", false, "Do not print the response headers")
-	cmd.Flags().BoolP("no-highlight", "L", false, "Do not highlight the request/response body")
-	cmd.Flags().BoolP("no-format", "F", false, "Do not format the request/response body")
-	cmd.Flags().BoolP("no-body", "B", false, "Do not print the response body")
-	cmd.Flags().BoolP("stream", "s", false, "Stream the response")
-	cmd.Flags().BoolP("debug", "d", false, "Debug mode")
-	cmd.Flags().BoolP("verbose", "v", false, "Verbose mode (prints the request)")
+	cmd.Flags().StringP(flagMethod, "X", http.MethodGet, "The HTTP method to use")
+	cmd.Flags().BoolP(flagNoColor, "C", false, "Do not use color in the output (NO_COLOR is also respected)")
+	cmd.Flags().Bool(flagForm, false, "Format the request body as a form, instead of JSON")
+	cmd.Flags().BoolP(flagNoSession, "S", false, "Do not read or save the session")
+	cmd.Flags().BoolP(flagNoHeaders, "H", false, "Do not print the response headers")
+	cmd.Flags().BoolP(flagNoHighlight, "L", false, "Do not highlight the request/response body")
+	cmd.Flags().BoolP(flagNoFormat, "F", false, "Do not format the request/response body")
+	cmd.Flags().BoolP(flagNoBody, "B", false, "Do not print the response body")
+	cmd.Flags().BoolP(flagStream, "s", false, "Stream the response")
+	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
+	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")
 
 	return cmd
 }
 
-func getMethod(cmd *cobra.Command, hasBody bool) (string, error) {
+func getMethod(cmd *cobra.Command, methodFlag string, hasBody bool) (string, error) {
 	if !cmd.Flags().Changed("method") && hasBody {
 		return http.MethodPost, nil
 	}
-
-	methodFlag, err := cmd.Flags().GetString("method")
-	cobra.CheckErr(err)
 
 	method := strings.ToUpper(methodFlag)
 
