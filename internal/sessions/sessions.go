@@ -208,6 +208,11 @@ func (m *Manager) WriteRequest(r *http.Request, writeOpts ...func(*writeRequestO
 		}
 	}
 
+	// If no headers were saved, don't persist the session.
+	if len(session.Headers) == 0 {
+		return nil
+	}
+
 	m.sessions[opts.sessionName] = *session
 
 	if err := m.Write(); err != nil {

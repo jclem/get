@@ -89,6 +89,20 @@ func TestWriteRequest_SaveAllHeaders_StoresAll(t *testing.T) {
 	require.Equal(t, []string{"staging"}, s.Headers["X-Env"])
 }
 
+func TestWriteRequest_NoHeaders_DoesNotPersist(t *testing.T) {
+	t.Parallel()
+
+	path := tempSessionsPath(t)
+	mgr, err := sessions.NewManager(sessions.WithSessionsPath(path))
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example.com/", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, mgr.WriteRequest(req))
+	require.Nil(t, mgr.Get("api.example.com"))
+}
+
 func TestGetAll_RedactionAndReveal(t *testing.T) {
 	t.Parallel()
 
