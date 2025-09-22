@@ -2,8 +2,8 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-full_bin = "tmp/main -h"
-cmd = "go build -o ./tmp/main ./internal/cmd/main"
+full_bin = "tmp/get -h"
+cmd = "make build"
 delay = 50
 exclude_dir = ["assets", "tmp", "vendor", "testdata"]
 exclude_file = []
@@ -32,7 +32,7 @@ silent = false
 time = false
 
 [misc]
-clean_on_exit = true
+clean_on_exit = false
 
 [screen]
 clear_on_rebuild = false

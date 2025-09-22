@@ -35,3 +35,23 @@
 - Do not commit build outputs; `tmp/` is ignored.
 - Avoid real external services in tests; mock or isolate side effects.
 
+## Documentation Sync & Checks
+- README usage block must exactly match CLI help:
+  - The code block under README “Usage” should be a verbatim copy of `./tmp/main --help` (including spacing, ordering, and sections like SESSIONS).
+  - After changing flags, long help text, or behaviors, rebuild and regenerate help:
+    - `go build -o ./tmp/main ./internal/cmd/main`
+    - `./tmp/main --help` and paste the full output into the README usage block.
+- Quick verification (macOS/Linux):
+  - `go build -o ./tmp/main ./internal/cmd/main`
+  - `./tmp/main --help > /tmp/get_help.txt`
+  - Extract README block and diff:
+    - `awk '/^```text/{flag=1;next} /^```$/{flag=0} flag' README.md > /tmp/readme_usage.txt`
+    - `diff -u /tmp/readme_usage.txt /tmp/get_help.txt` (no output means in sync)
+- Doc comments and examples should reflect current behavior. Update parser/request examples and the Sessions section when inputs, flags, or persistence rules change.
+- Any changes to CLI flags, help text, or behavior should include a documentation check as part of the PR (ensure README, command help, and doc comments are updated and consistent).
+
+### Helpers
+- Make targets:
+  - `make docs-check` runs a consistency check between README usage and `./tmp/main --help`.
+  - `make docs-sync` rebuilds and rewrites the README usage block from `./tmp/main --help`.
+    - Both targets rely on `scripts/check-usage.sh` and `scripts/sync-usage.sh`.

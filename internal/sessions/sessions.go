@@ -1,4 +1,7 @@
-// Package sessions provides persistence of HTTP requests for a given URL.
+// Package sessions provides lightweight persistence of selected request headers
+// across runs, keyed by a session name (defaults to the request host). Sessions
+// are stored at ${XDG_CONFIG_HOME}/get/sessions.json and currently only persist
+// a subset of headers (e.g., Authorization) by default.
 package sessions
 
 import (
@@ -97,20 +100,53 @@ func (m *Manager) Write() error {
 	return nil
 }
 
+type writeRequestOpts struct {
+	saveAllHeaders bool
+	sessionName    string
+}
+
+// WithSaveAllHeaders sets whether to save all headers to the session.
+func WithSaveAllHeaders(b bool) func(*writeRequestOpts) {
+	return func(o *writeRequestOpts) {
+		o.saveAllHeaders = b
+	}
+}
+
+// WithSessionName sets the session name to use.
+func WithSessionName(s string) func(*writeRequestOpts) {
+	return func(o *writeRequestOpts) {
+		o.sessionName = s
+	}
+}
+
 // WriteRequest writes the session for a given request.
-func (m *Manager) WriteRequest(sessionName string, r *http.Request) error {
-	session := m.Get(sessionName)
+func (m *Manager) WriteRequest(r *http.Request, writeOpts ...func(*writeRequestOpts)) error {
+	opts := writeRequestOpts{
+		saveAllHeaders: false,
+		sessionName:    r.URL.Host,
+	}
+
+	for _, opt := range writeOpts {
+		opt(&opts)
+	}
+
+	session := m.Get(opts.sessionName)
 	if session == nil {
 		session = NewSession()
 	}
 
 	for k, v := range r.Header {
+		if opts.saveAllHeaders {
+			session.Headers[k] = v
+			continue
+		}
+
 		if _, ok := m.writableHeaders[http.CanonicalHeaderKey(k)]; ok {
 			session.Headers[k] = v
 		}
 	}
 
-	m.sessions[sessionName] = *session
+	m.sessions[opts.sessionName] = *session
 
 	if err := m.Write(); err != nil {
 		return err

@@ -1,4 +1,4 @@
-// Package cmd provides the command-line interface for the get.
+// Package cmd provides the command-line interface for the get CLI.
 package cmd
 
 import (

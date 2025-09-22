@@ -20,33 +20,35 @@ import (
 )
 
 type rootFlags struct {
-	HTTPMethod  string `mapstructure:"method"`
-	NoColor     bool   `mapstructure:"no-color"`
-	Form        bool   `mapstructure:"form"`
-	NoSession   bool   `mapstructure:"no-session"`
-	SessionName string `mapstructure:"session"`
-	NoHeaders   bool   `mapstructure:"no-headers"`
-	NoHighlight bool   `mapstructure:"no-highlight"`
-	NoFormat    bool   `mapstructure:"no-format"`
-	NoBody      bool   `mapstructure:"no-body"`
-	Stream      bool   `mapstructure:"stream"`
-	Debug       bool   `mapstructure:"debug"`
-	Verbose     bool   `mapstructure:"verbose"`
+	HTTPMethod     string `mapstructure:"method"`
+	NoColor        bool   `mapstructure:"no-color"`
+	Form           bool   `mapstructure:"form"`
+	NoSession      bool   `mapstructure:"no-session"`
+	SessionName    string `mapstructure:"session"`
+	NoHeaders      bool   `mapstructure:"no-headers"`
+	NoHighlight    bool   `mapstructure:"no-highlight"`
+	NoFormat       bool   `mapstructure:"no-format"`
+	NoBody         bool   `mapstructure:"no-body"`
+	Stream         bool   `mapstructure:"stream"`
+	Debug          bool   `mapstructure:"debug"`
+	Verbose        bool   `mapstructure:"verbose"`
+	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
 }
 
 const (
-	flagMethod      = "method"
-	flagNoColor     = "no-color"
-	flagForm        = "form"
-	flagNoSession   = "no-session"
-	flagSessionName = "session"
-	flagNoHeaders   = "no-headers"
-	flagNoHighlight = "no-highlight"
-	flagNoFormat    = "no-format"
-	flagNoBody      = "no-body"
-	flagStream      = "stream"
-	flagDebug       = "debug"
-	flagVerbose     = "verbose"
+	flagMethod         = "method"
+	flagNoColor        = "no-color"
+	flagForm           = "form"
+	flagNoSession      = "no-session"
+	flagSessionName    = "session"
+	flagNoHeaders      = "no-headers"
+	flagNoHighlight    = "no-highlight"
+	flagNoFormat       = "no-format"
+	flagNoBody         = "no-body"
+	flagStream         = "stream"
+	flagDebug          = "debug"
+	flagVerbose        = "verbose"
+	flagSaveAllHeaders = "save-all-headers"
 )
 
 type rootFlagsContextKey struct{}
@@ -74,7 +76,7 @@ URL PARSING BEHAVIOR:
 The tool automatically handles various URL formats to make requests more convenient:
 
   • Port-only (e.g., ":8080")     → http://localhost:8080
-  • localhost (e.g., "localhost:3000") → http://localhost:3000  
+  • localhost (e.g., "localhost:3000") → http://localhost:3000
   • Full URLs (e.g., "https://api.example.com") → Used as-is
   • Domain-only (e.g., "example.com") → https://example.com
 
@@ -85,6 +87,16 @@ POST will be used by default if a body is provided and no explicit method is set
 OUTPUT FORMATTING:
 The tool provides rich output formatting with syntax highlighting and structured display.
 Use the various output control flags to customize what is displayed and how it's formatted.
+
+SESSIONS:
+By default, get persists a small subset of request headers (currently:
+Authorization) between runs, keyed by a session name.
+
+The default session name is the request host; use --session to override, or
+-S/--no-session to disable reading and writing.  Sessions are stored at
+${XDG_CONFIG_HOME}/get/sessions.json.
+
+Use -A/--save-all-headers to persist all request headers for this run.
 
 EXAMPLES:
   # Basic GET request to a domain (defaults to HTTPS)
@@ -164,7 +176,9 @@ EXAMPLES:
 			cobra.CheckErr(err)
 
 			if !flags.NoSession {
-				err = sessionManager.WriteRequest(sessionName, req)
+				err = sessionManager.WriteRequest(req,
+					sessions.WithSaveAllHeaders(flags.SaveAllHeaders),
+					sessions.WithSessionName(sessionName))
 				cobra.CheckErr(err)
 			}
 
@@ -209,6 +223,7 @@ EXAMPLES:
 	cmd.Flags().BoolP(flagStream, "s", false, "Stream the response")
 	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
 	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")
+	cmd.Flags().BoolP(flagSaveAllHeaders, "A", false, "Save all headers to the session")
 
 	return cmd
 }
