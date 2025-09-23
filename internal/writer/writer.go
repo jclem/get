@@ -84,6 +84,7 @@ type writeOpts struct {
 	highlight bool
 	format    bool
 	stream    bool
+	reveal    bool
 }
 
 // WithHeaders sets whether to write the headers.
@@ -121,6 +122,13 @@ func WithStream(b bool) func(*writeOpts) {
 	}
 }
 
+// WithReveal sets whether to reveal sensitive values (e.g., Authorization header).
+func WithReveal(b bool) func(*writeOpts) {
+    return func(o *writeOpts) {
+        o.reveal = b
+    }
+}
+
 // WriteRequest writes out a human-readable representation of an HTTP request.
 func (w *Writer) WriteRequest(r *http.Request, opts ...func(*writeOpts)) error {
 	writeOpts := writeOpts{ //nolint:exhaustruct // we only need some of these
@@ -150,7 +158,16 @@ func (w *Writer) WriteRequest(r *http.Request, opts ...func(*writeOpts)) error {
 			return err
 		}
 
-		if err := w.plain(strings.Join(v, ", ") + "\n"); err != nil {
+		vals := v
+		if http.CanonicalHeaderKey(k) == http.CanonicalHeaderKey("Authorization") && !writeOpts.reveal {
+			masked := make([]string, len(v))
+			for i, val := range v {
+				masked[i] = strings.Repeat("*", len(val))
+			}
+			vals = masked
+		}
+
+		if err := w.plain(strings.Join(vals, ", ") + "\n"); err != nil {
 			return err
 		}
 	}

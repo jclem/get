@@ -33,6 +33,7 @@ type rootFlags struct {
 	Stream         bool   `mapstructure:"stream"`
 	Debug          bool   `mapstructure:"debug"`
 	Verbose        bool   `mapstructure:"verbose"`
+	Reveal         bool   `mapstructure:"reveal"`
 	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
 }
 
@@ -185,7 +186,8 @@ EXAMPLES:
 			if flags.Verbose {
 				err := w.WriteRequest(req,
 					writer.WithHighlight(!flags.NoHighlight),
-					writer.WithFormat(!flags.NoFormat))
+					writer.WithFormat(!flags.NoFormat),
+					writer.WithReveal(flags.Reveal))
 				cobra.CheckErr(err)
 			}
 
@@ -218,6 +220,7 @@ EXAMPLES:
 	cmd.Flags().BoolP(flagStream, "s", false, "Stream the response")
 	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
 	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")
+	cmd.Flags().BoolP(flagReveal, "r", false, "Reveal sensitive request values (e.g., Authorization header)")
 	cmd.Flags().BoolP(flagSaveAllHeaders, "A", false, "Save all headers to the session")
 
 	// Subcommands

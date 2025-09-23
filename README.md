@@ -104,6 +104,7 @@ Flags:
       --session string      The name of the session to use
   -s, --stream              Stream the response
   -v, --verbose             Verbose mode (prints the request)
+  -r, --reveal              Reveal sensitive request values (e.g., Authorization header)
 
 Use "get [command] --help" for more information about a command.
 ```
