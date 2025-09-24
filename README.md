@@ -14,10 +14,11 @@ optional formatting), and a concise, script‑friendly interface.
 
 ## Installation
 
-- Build from source:
-  - `go build -o ./tmp/main ./internal/cmd/main`
-  - Optionally move to your `PATH`: `mv ./tmp/main /usr/local/bin/get`
-- Run without installing: `go run ./internal/cmd/main --help`
+Either download and install a release, or use [mise-en-place](https://mise.jdx.dev/dev-tools/backends/github.html).
+
+```shell
+mise use --global github:jclem/get
+```
 
 ## Usage
 
