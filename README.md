@@ -152,9 +152,9 @@ Examples:
 
 ## Development
 
-- Build: `go build -o ./tmp/main ./internal/cmd/main`
-- Test: `go test ./...`
-- Lint: `golangci-lint run` (configured via `.golangci.toml`)
-- Tools: `mise install`
-- Hooks: `lefthook install`
-- Dev loop: `air`
+Install [mise-env-place](https://mise.jdx.dev/)
+
+- Install dependencies: `mise install`
+- Run remaining setup: `mise bootstrap`
+- See available tasks: `mise tasks`
+- Run development loop: `mise watch build`

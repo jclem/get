@@ -4,3 +4,46 @@ go = "1.25"
 golangci-lint = "2.4"
 goreleaser = "2.12"
 lefthook = "1.13"
+
+[tasks.hooks]
+description = "Install hooks"
+run = "lefthook install"
+sources = [".lefthook.toml"]
+
+[tasks.bootstrap]
+description = "Run development setup"
+depends = ["hooks"]
+
+[tasks.build]
+description = "Build the project"
+run = "go build -o ./tmp/get ./internal/cmd/main"
+sources = ["**/*.go"]
+outputs = ["tmp/get"]
+
+[tasks.docs-sync]
+description = "Sync the docs into the README"
+run = "bash scripts/sync-usage.sh"
+sources = ["**/*.go"]
+outputs = ["README.md"]
+
+[tasks.format]
+description = "Format the code"
+run = "go fmt ./..."
+sources = ["**/*.go", "go.mod", "go.sum"]
+outputs = ["**/*.go", "go.mod", "go.sum"]
+
+[tasks.deps]
+description = "Tidy the go.mod and go.sum files"
+run = "go mod tidy"
+sources = ["**/*.go", "go.mod", "go.sum"]
+outputs = ["go.mod", "go.sum"]
+
+[tasks.lint]
+description = "Run the linter"
+run = "golangci-lint run"
+sources = ["**/*.go", ".golangci.toml"]
+
+[tasks.test]
+description = "Run the tests"
+run = "go test ./..."
+sources = ["**/*.go"]

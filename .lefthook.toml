@@ -2,11 +2,23 @@
 parallel = true
 
 [[pre-commit.jobs]]
-name = "lint"
-run = "golangci-lint run"
+run = "mise format"
+stage_fixed = true
 glob = "*.go"
 
 [[pre-commit.jobs]]
-name = "test"
-run = "go test ./..."
+run = "mise deps"
+glob = ["*.go", "go.mod", "go.sum"]
+
+[[pre-commit.jobs]]
+run = "mise lint"
+glob = "*.go"
+
+[[pre-commit.jobs]]
+run = "mise test"
+glob = "*.go"
+
+[[pre-commit.jobs]]
+run = "mise docs-sync"
+stage_fixed = true
 glob = "*.go"

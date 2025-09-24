@@ -19,3 +19,5 @@ jobs:
         with: { version: "v2.4" }
       - name: test
         run: go test ./...
+      - name: build
+        run: go build ./internal/cmd/main && rm main
