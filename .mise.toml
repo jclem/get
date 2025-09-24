@@ -12,7 +12,7 @@ sources = [".lefthook.toml"]
 
 [tasks.bootstrap]
 description = "Run development setup"
-depends = ["hooks"]
+depends = ["hooks", "deps"]
 
 [tasks.build]
 description = "Build the project"
