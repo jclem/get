@@ -38,8 +38,6 @@ release:
   use_existing_draft: true
   replace_existing_artifacts: true
   prerelease: auto
-  extra_files:
-    - glob: LICENSE.md
 
 changelog:
   sort: asc
