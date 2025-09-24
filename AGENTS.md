@@ -7,12 +7,16 @@
 - `tmp/`: Local build artifacts (ignored by Git).
 
 ## Build, Test, and Development Commands
-- Build: `go build -o ./tmp/main ./internal/cmd/main`
-- Run: `go run ./internal/cmd/main --help` or `./tmp/main example.com`
-- Test: `go test ./...` (coverage: `go test -cover ./...`)
-- Lint: `golangci-lint run` (configured via `.golangci.toml`)
-- Dev loop: `air` (reads `.air.toml`). Install pinned tools with `mise install` (Go/Air/golangci‑lint/lefthook). Enable hooks with `lefthook install`.
- - Always check the linter after making changes: `golangci-lint run` (CI enforces a clean lint run).
+- Install toolchains: `mise install`
+- Bootstrap hooks and setup: `mise bootstrap`
+- Build: `mise build` (produces `./tmp/get` via `go build -o ./tmp/get ./internal/cmd/main`)
+- Run: `go run ./internal/cmd/main --help` or `./tmp/get example.com`
+- Test: `mise test` (wraps `go test ./...`, coverage: `go test -cover ./...`)
+- Lint: `mise lint` (configured via `.golangci.toml`)
+- Format: `mise format`
+- Maintain dependencies: `mise deps`
+- Dev loop: `mise watch build`
+- Always check the linter after making changes (CI enforces a clean lint run).
 
 ## Coding Style & Naming Conventions
 - Use standard Go formatting: `go fmt ./...` before pushing.
@@ -30,22 +34,21 @@
 ## Commit & Pull Request Guidelines
 - Commits: imperative, concise subject (e.g., `Add parsing and writing`); include rationale in the body when useful.
 - PRs: clear description, linked issues, usage examples (e.g., `get -v example.com`), and docs updates if behavior changes.
-- CI must pass (lint + tests via GitHub Actions). Pre‑commit hooks (`lefthook`) run `golangci-lint` and `go test`.
+- CI must pass (lint + tests via GitHub Actions). Pre‑commit hooks invoke `mise format`, `mise deps`, `mise lint`, `mise test`, and `mise docs-sync`.
 
 ## Security & Configuration Tips
 - Disable color via `NO_COLOR=1` or flag `-C` when scripting.
 - Do not commit build outputs; `tmp/` is ignored.
 - Avoid real external services in tests; mock or isolate side effects.
 
-## Documentation Sync & Checks
 - README usage block must exactly match CLI help:
-  - The code block under README “Usage” should be a verbatim copy of `./tmp/main --help` (including spacing, ordering, and sections like SESSIONS).
+  - The code block under README “Usage” should be a verbatim copy of `./tmp/get --help` (including spacing, ordering, and sections like SESSIONS).
   - After changing flags, long help text, or behaviors, rebuild and regenerate help:
-    - `go build -o ./tmp/main ./internal/cmd/main`
-    - `./tmp/main --help` and paste the full output into the README usage block.
+    - `mise build`
+    - `./tmp/get --help` and paste the full output into the README usage block (or run `mise docs-sync`).
 - Quick verification (macOS/Linux):
-  - `go build -o ./tmp/main ./internal/cmd/main`
-  - `./tmp/main --help > /tmp/get_help.txt`
+  - `mise build`
+  - `./tmp/get --help > /tmp/get_help.txt`
   - Extract README block and diff:
     - `awk '/^```text/{flag=1;next} /^```$/{flag=0} flag' README.md > /tmp/readme_usage.txt`
     - `diff -u /tmp/readme_usage.txt /tmp/get_help.txt` (no output means in sync)
@@ -53,7 +56,9 @@
 - Any changes to CLI flags, help text, or behavior should include a documentation check as part of the PR (ensure README, command help, and doc comments are updated and consistent).
 
 ### Helpers
-- Make targets:
-  - `make docs-check` runs a consistency check between README usage and `./tmp/main --help`.
-  - `make docs-sync` rebuilds and rewrites the README usage block from `./tmp/main --help`.
-    - Both targets rely on `scripts/check-usage.sh` and `scripts/sync-usage.sh`.
+- `mise tasks` lists available automations.
+- `mise build` runs the Go build into `./tmp/get`.
+- `mise test` runs the Go test suite.
+- `mise lint` wraps `golangci-lint run`.
+- `mise format` wraps `go fmt ./...`.
+- `mise docs-sync` rebuilds and rewrites the README usage block from `./tmp/get --help`.
