@@ -31,9 +31,9 @@ type sessionsFile struct {
 
 // A Manager manages sessions data.
 type Manager struct {
-    sessions        map[string]Session
-    path            string
-    writableHeaders map[string]struct{}
+	sessions        map[string]Session
+	path            string
+	writableHeaders map[string]struct{}
 }
 
 // WithSessionsPath sets the path to the sessions file.
@@ -97,12 +97,12 @@ func NewManager(mOpts ...func(*Manager)) (*Manager, error) {
 
 	manager.sessions = sessionsFile.Sessions
 
-    return &manager, nil
+	return &manager, nil
 }
 
 // Path returns the full path to the sessions file on disk.
 func (m *Manager) Path() string {
-    return m.path
+	return m.path
 }
 
 // Write writes the sessions to the sessions file.

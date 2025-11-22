@@ -155,22 +155,22 @@ func newSessionsClearCmd() *cobra.Command {
 }
 
 func addRevealFlag(cmd *cobra.Command) {
-    cmd.Flags().BoolP(flagReveal, "r", false, "Reveal header values")
+	cmd.Flags().BoolP(flagReveal, "r", false, "Reveal header values")
 }
 
 func newSessionsPathCmd() *cobra.Command {
-    cmd := &cobra.Command{
-        Use:   "path",
-        Short: "Print the sessions file path",
-        Args:  cobra.NoArgs,
-        Run: func(cmd *cobra.Command, _ []string) {
-            mgr, err := sessions.NewManager()
-            cobra.CheckErr(err)
+	cmd := &cobra.Command{
+		Use:   "path",
+		Short: "Print the sessions file path",
+		Args:  cobra.NoArgs,
+		Run: func(cmd *cobra.Command, _ []string) {
+			mgr, err := sessions.NewManager()
+			cobra.CheckErr(err)
 
-            _, err = fmt.Fprintln(cmd.OutOrStdout(), mgr.Path())
-            cobra.CheckErr(err)
-        },
-    }
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), mgr.Path())
+			cobra.CheckErr(err)
+		},
+	}
 
-    return cmd
+	return cmd
 }
