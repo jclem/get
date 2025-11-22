@@ -11,6 +11,8 @@ builds:
   - main: ./internal/cmd/main
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/jclem/get/internal/cmd.Version={{.Version}}
     goos:
       - linux
       - windows

@@ -229,6 +229,7 @@ EXAMPLES:
 
 	// Subcommands
 	cmd.AddCommand(NewSessionsCmd())
+	cmd.AddCommand(NewVersionCmd())
 
 	return cmd
 }

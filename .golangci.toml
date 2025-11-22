@@ -19,6 +19,10 @@ disable = [
 linters = ["gochecknoglobals"]
 path = "internal/parser/parser.go"
 
+[[linters.exclusions.rules]]
+linters = ["gochecknoglobals"]
+path = "internal/cmd/version.go"
+
 [linters.settings.depguard.rules.all]
 files = ["$all"]
 allow = [
