@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#MISE description="Create and push a release tag"
+#USAGE arg "<bump_type>" help="Version bump type: major, minor, or patch"
+#USAGE flag "--dry-run" help="Show what would be done without making changes"
+#USAGE flag "--ignore-git" help="Bypass uncommitted changes check"
+#USAGE flag "--debug" help="Print all flag values"
+
+set -eo pipefail
+
+# shellcheck disable=SC2154 # usage_bump_type is set by Mise.
+BUMP_TYPE="${usage_bump_type}"
+DRY_RUN="${usage_dry_run:-false}"
+IGNORE_GIT="${usage_ignore_git:-false}"
+DEBUG="${usage_debug:-false}"
+
+if [[ "$DEBUG" == "true" ]]; then
+  echo "=== Debug: Flag Values ==="
+  echo "BUMP_TYPE: $BUMP_TYPE"
+  echo "DRY_RUN: $DRY_RUN"
+  echo "IGNORE_GIT: $IGNORE_GIT"
+  echo "DEBUG: $DEBUG"
+  echo "=========================="
+  echo ""
+fi
+
+if [[ "$BUMP_TYPE" != "major" && "$BUMP_TYPE" != "minor" && "$BUMP_TYPE" != "patch" ]]; then
+  echo "Error: Invalid bump type '$BUMP_TYPE'. Must be major, minor, or patch"
+  exit 1
+fi
+
+# Check for uncommitted changes (unless --ignore-git is set)
+if [[ "$IGNORE_GIT" != "true" && -n "$(git status --porcelain)" ]]; then
+  echo "Error: Working directory has uncommitted changes"
+  echo ""
+  git status --short
+  echo ""
+  echo "Please commit or stash all changes before creating a release."
+  echo "Or use --ignore-git to bypass this check."
+  exit 1
+fi
+
+# Get the latest tag (default to v0.0.0 if no tags exist)
+CURRENT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+
+# Remove the 'v' prefix for version calculation
+VERSION=${CURRENT_VERSION#v}
+
+# Split version into components
+IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+# Bump the appropriate version component
+case "$BUMP_TYPE" in
+  major)
+    MAJOR=$((MAJOR + 1))
+    MINOR=0
+    PATCH=0
+    ;;
+  minor)
+    MINOR=$((MINOR + 1))
+    PATCH=0
+    ;;
+  patch)
+    PATCH=$((PATCH + 1))
+    ;;
+esac
+
+NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+
+echo "Current version: $CURRENT_VERSION"
+echo "New version: $NEW_VERSION"
+echo ""
+
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "[DRY RUN] Would create annotated tag:"
+  echo "  git tag -am \"$NEW_VERSION\" \"$NEW_VERSION\""
+  echo ""
+  echo "[DRY RUN] Would push tag:"
+  echo "  git push --follow-tags"
+  echo ""
+  echo "✓ Dry run complete. No changes made."
+else
+  echo "Creating annotated tag..."
+  git tag -am "$NEW_VERSION" "$NEW_VERSION"
+
+  echo "Pushing tag..."
+  git push --follow-tags
+
+  echo ""
+  echo "✓ Release $NEW_VERSION created and pushed successfully!"
+fi
+
