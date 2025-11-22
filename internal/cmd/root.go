@@ -33,6 +33,7 @@ type rootFlags struct {
 	Stream         bool   `mapstructure:"stream"`
 	Debug          bool   `mapstructure:"debug"`
 	Verbose        bool   `mapstructure:"verbose"`
+	DryRun         bool   `mapstructure:"dry-run"`
 	SaveAllHeaders bool   `mapstructure:"save-all-headers"`
 }
 
@@ -51,6 +52,7 @@ const (
 	flagStream         = "stream"
 	flagDebug          = "debug"
 	flagVerbose        = "verbose"
+	flagDryRun         = "dry-run"
 	flagSaveAllHeaders = "save-all-headers"
 )
 
@@ -167,7 +169,7 @@ EXAMPLES:
 				builder.WithSession(session))
 			cobra.CheckErr(err)
 
-			if !flags.NoSession {
+			if !flags.NoSession && !flags.DryRun {
 				err = sessionManager.WriteRequest(req,
 					sessions.WithSaveAllHeaders(flags.SaveAllHeaders),
 					sessions.WithSessionName(sessionName))
@@ -182,11 +184,15 @@ EXAMPLES:
 			w := writer.NewWriter(cmd.OutOrStdout(),
 				writer.WithColor(!noColor))
 
-			if flags.Verbose {
+			if flags.Verbose || flags.DryRun {
 				err := w.WriteRequest(req,
 					writer.WithHighlight(!flags.NoHighlight),
 					writer.WithFormat(!flags.NoFormat))
 				cobra.CheckErr(err)
+			}
+
+			if flags.DryRun {
+				return
 			}
 
 			client := getClient(flags)
@@ -218,6 +224,7 @@ EXAMPLES:
 	cmd.Flags().BoolP(flagStream, "s", false, "Stream the response")
 	cmd.Flags().BoolP(flagDebug, "d", false, "Debug mode")
 	cmd.Flags().BoolP(flagVerbose, "v", false, "Verbose mode (prints the request)")
+	cmd.Flags().Bool(flagDryRun, false, "Dry-run mode (prints the request without sending it)")
 	cmd.Flags().BoolP(flagSaveAllHeaders, "A", false, "Save all headers to the session")
 
 	// Subcommands
