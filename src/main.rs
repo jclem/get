@@ -15,6 +15,10 @@ struct Cli {
     #[arg(short, long)]
     verbose: bool,
 
+    /// Maximum number of redirects to follow. Set to 0 to disable redirects.
+    #[arg(long, default_value_t = 16)]
+    max_redirects: usize,
+
     /// The full URL to request.
     url: String,
 }
@@ -33,7 +37,13 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let client = Client::builder().redirect(Policy::none()).build()?;
+    let redirect_policy = if cli.max_redirects == 0 {
+        Policy::none()
+    } else {
+        Policy::limited(cli.max_redirects)
+    };
+
+    let client = Client::builder().redirect(redirect_policy).build()?;
     let url = parse_target_url(&cli.url)?;
     let host = host_header_value(&url)?;
 
