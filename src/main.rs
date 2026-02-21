@@ -2,15 +2,19 @@ mod input_parser;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{CompleteEnv, Shell};
-use input_parser::parse_input;
+use input_parser::{parse_input, ParsedHeader};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Url;
+use serde::Deserialize;
 use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
+use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::net::IpAddr;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
@@ -35,6 +39,10 @@ struct Cli {
     /// Do not print the response body.
     #[arg(short = 'B', long)]
     no_body: bool,
+
+    /// Skip all session persistence.
+    #[arg(short = 'S', long)]
+    no_session: bool,
 
     /// Show the request and exit without sending it.
     #[arg(long)]
@@ -71,6 +79,18 @@ enum Commands {
         #[arg(value_enum)]
         shell: Option<Shell>,
     },
+
+    /// Manage get configuration.
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommands,
+    },
+}
+
+#[derive(Subcommand, Clone, Debug)]
+enum ConfigCommands {
+    /// Open the config file in $EDITOR.
+    Edit,
 }
 
 fn main() {
@@ -133,6 +153,21 @@ fn run() -> Result<(), Box<dyn Error>> {
     let client = Client::builder().redirect(redirect_policy).build()?;
     let mut url = parse_target_url(url)?;
     let parsed_input = parse_input(&cli.inputs)?;
+    let host_for_session = url
+        .host_str()
+        .map(str::to_string)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host"))?;
+    let loaded_session_headers = load_session_headers(&host_for_session, cli.no_session)?;
+    let session_headers = if cli.no_session {
+        BTreeSet::new()
+    } else {
+        load_session_header_names()?
+    };
+    let mut tracked_session_headers = session_headers.clone();
+    tracked_session_headers.extend(loaded_session_headers.keys().cloned());
+    let session_updates = collect_session_headers(&parsed_input.headers, &tracked_session_headers);
+    let session_updates = changed_session_headers(&session_updates, &loaded_session_headers);
+    let cli_header_names = collect_header_names(&parsed_input.headers);
 
     if !parsed_input.query_params.is_empty() {
         let mut query_pairs = url.query_pairs_mut();
@@ -152,9 +187,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     });
     let method = reqwest::Method::from_bytes(method_name.as_bytes())?;
     let mut request_builder = client
-        .request(method, url)
+        .request(method, url.clone())
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")));
+
+    for (name, value) in &loaded_session_headers {
+        if cli_header_names.contains(name) {
+            continue;
+        }
+        let (name, value) = parse_header(name, value)?;
+        request_builder = request_builder.header(name, value);
+    }
 
     for header in &parsed_input.headers {
         let (name, value) = parse_header(&header.name, &header.value)?;
@@ -215,6 +258,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let mut response = client.execute(request)?;
+    persist_session_headers(&host_for_session, &session_updates, cli.no_session)?;
     if show_headers {
         writeln!(
             stderr,
@@ -290,7 +334,47 @@ fn run_command(command: Commands) -> Result<(), Box<dyn Error>> {
             write_dynamic_completion_registration(shell)?;
             Ok(())
         }
+        Commands::Config { command } => run_config_command(command),
     }
+}
+
+fn run_config_command(command: ConfigCommands) -> Result<(), Box<dyn Error>> {
+    match command {
+        ConfigCommands::Edit => edit_config(),
+    }
+}
+
+fn edit_config() -> Result<(), Box<dyn Error>> {
+    let path = config_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine config path (XDG_CONFIG_HOME or HOME required)",
+        )
+    })?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    if !path.exists() {
+        fs::File::create(&path)?;
+    }
+
+    let editor = std::env::var("EDITOR")
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "$EDITOR is not set"))?;
+    let mut parts = editor.split_whitespace();
+    let program = parts
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "$EDITOR is empty"))?;
+
+    let mut command = std::process::Command::new(program);
+    command.args(parts).arg(path);
+    let status = command.status()?;
+    if !status.success() {
+        return Err(io::Error::other(format!("editor exited with status {status}")).into());
+    }
+
+    Ok(())
 }
 
 fn run_dynamic_completion_from_env() -> Result<bool, Box<dyn Error>> {
@@ -327,6 +411,213 @@ fn write_dynamic_completion_registration(shell: Shell) -> Result<(), Box<dyn Err
         return Err(io::Error::other("failed to generate completion registration").into());
     }
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct Config {
+    #[serde(rename = "session-headers", default)]
+    session_headers: Vec<String>,
+}
+
+fn load_session_header_names() -> Result<BTreeSet<String>, Box<dyn Error>> {
+    load_session_header_names_from_path(config_path())
+}
+
+fn load_session_header_names_from_path(
+    path: Option<PathBuf>,
+) -> Result<BTreeSet<String>, Box<dyn Error>> {
+    let path = match path {
+        Some(path) => path,
+        None => return Ok(BTreeSet::new()),
+    };
+
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(error) => return Err(error.into()),
+    };
+
+    let config: Config = toml::from_str(&content)?;
+    Ok(config
+        .session_headers
+        .into_iter()
+        .map(|name| name.to_ascii_lowercase())
+        .collect())
+}
+
+fn collect_session_headers(
+    headers: &[ParsedHeader],
+    configured: &BTreeSet<String>,
+) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::new();
+    for header in headers {
+        let name = header.name.to_ascii_lowercase();
+        if configured.contains(&name) {
+            result.insert(name, header.value.clone());
+        }
+    }
+    result
+}
+
+fn collect_header_names(headers: &[ParsedHeader]) -> BTreeSet<String> {
+    headers
+        .iter()
+        .map(|header| header.name.to_ascii_lowercase())
+        .collect()
+}
+
+fn changed_session_headers(
+    updates: &BTreeMap<String, String>,
+    existing: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut changed = BTreeMap::new();
+    for (name, value) in updates {
+        if existing.get(name) != Some(value) {
+            changed.insert(name.clone(), value.clone());
+        }
+    }
+    changed
+}
+
+fn load_session_headers(
+    host: &str,
+    no_session: bool,
+) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+    if no_session {
+        return Ok(BTreeMap::new());
+    }
+
+    let path = session_path(host)?;
+    load_session_headers_from_path(&path)
+}
+
+fn load_session_headers_from_path(path: &Path) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => return Err(error.into()),
+    };
+
+    let value = toml::from_str::<toml::Value>(&content)?;
+    let table = value
+        .as_table()
+        .ok_or_else(|| io::Error::other("session file is not a TOML table"))?;
+
+    let Some(headers) = table.get("headers") else {
+        return Ok(BTreeMap::new());
+    };
+    let headers = headers.as_table().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "`headers` is not a TOML table")
+    })?;
+
+    let mut loaded = BTreeMap::new();
+    for (name, value) in headers {
+        let value = value.as_str().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("`headers.{name}` is not a string"),
+            )
+        })?;
+        loaded.insert(name.to_ascii_lowercase(), value.to_string());
+    }
+
+    Ok(loaded)
+}
+
+fn persist_session_headers(
+    host: &str,
+    updates: &BTreeMap<String, String>,
+    no_session: bool,
+) -> Result<(), Box<dyn Error>> {
+    if no_session || updates.is_empty() {
+        return Ok(());
+    }
+
+    let path = session_path(host)?;
+    persist_session_headers_to_path(&path, updates)
+}
+
+fn persist_session_headers_to_path(
+    path: &Path,
+    updates: &BTreeMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut value = match fs::read_to_string(path) {
+        Ok(content) => toml::from_str::<toml::Value>(&content)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            toml::Value::Table(toml::map::Map::new())
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    let table = value
+        .as_table_mut()
+        .ok_or_else(|| io::Error::other("session file is not a TOML table"))?;
+    let headers = table
+        .entry("headers".to_string())
+        .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+
+    let headers = headers.as_table_mut().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "`headers` is not a TOML table")
+    })?;
+
+    for (name, value) in updates {
+        headers.insert(name.clone(), toml::Value::String(value.clone()));
+    }
+
+    fs::write(path, toml::to_string_pretty(&value)?)?;
+    Ok(())
+}
+
+fn config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(base.join("get").join("config.toml"))
+}
+
+fn session_state_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
+        })?;
+    Some(
+        base.join("get")
+            .join("profiles")
+            .join("default")
+            .join("sessions"),
+    )
+}
+
+fn session_path(host: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let base = session_state_dir().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    let host = sanitize_host_path_component(host);
+    Ok(base.join(format!("{host}.toml")))
+}
+
+fn sanitize_host_path_component(host: &str) -> String {
+    host.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn shell_name(shell: Shell) -> Result<&'static str, io::Error> {
@@ -572,8 +863,22 @@ fn write_prefixed_request_body(stderr: &mut io::Stderr, bytes: &[u8]) -> io::Res
 
 #[cfg(test)]
 mod tests {
-    use super::{body_to_form_fields, syntax_token_for_content_type};
+    use super::{
+        body_to_form_fields, changed_session_headers, collect_header_names,
+        collect_session_headers, load_session_header_names_from_path,
+        load_session_headers_from_path, persist_session_headers, persist_session_headers_to_path,
+        sanitize_host_path_component, syntax_token_for_content_type, Cli, Commands, ConfigCommands,
+        ParsedHeader,
+    };
+    use clap::{CommandFactory, Parser};
     use serde_json::json;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        env, fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+    use toml;
 
     #[test]
     fn syntax_token_matches_common_content_types() {
@@ -640,5 +945,180 @@ mod tests {
                 ("tags[1]".to_string(), "cli".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn help_includes_no_session_flag() {
+        let mut buffer = Vec::new();
+        Cli::command().write_long_help(&mut buffer).unwrap();
+        let help = String::from_utf8(buffer).unwrap();
+
+        assert!(help.contains("-S"));
+        assert!(help.contains("--no-session"));
+    }
+
+    #[test]
+    fn parses_config_edit_subcommand() {
+        let cli = Cli::try_parse_from(["get", "config", "edit"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Config {
+                command: ConfigCommands::Edit,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn collects_session_headers_case_insensitively() {
+        let headers = vec![
+            ParsedHeader {
+                name: "Authorization".to_string(),
+                value: "Bearer abc".to_string(),
+            },
+            ParsedHeader {
+                name: "x-other".to_string(),
+                value: "ignore".to_string(),
+            },
+        ];
+
+        let configured = BTreeSet::from_iter(vec!["authorization".to_string()]);
+        let updates = collect_session_headers(&headers, &configured);
+
+        assert_eq!(
+            updates.get("authorization"),
+            Some(&"Bearer abc".to_string())
+        );
+        assert_eq!(updates.len(), 1);
+    }
+
+    #[test]
+    fn collects_header_names_case_insensitively() {
+        let headers = vec![
+            ParsedHeader {
+                name: "Authorization".to_string(),
+                value: "Bearer abc".to_string(),
+            },
+            ParsedHeader {
+                name: "authorization".to_string(),
+                value: "Bearer def".to_string(),
+            },
+        ];
+
+        let names = collect_header_names(&headers);
+        assert_eq!(
+            names,
+            BTreeSet::from_iter(vec!["authorization".to_string()])
+        );
+    }
+
+    #[test]
+    fn keeps_only_changed_session_headers() {
+        let mut updates = BTreeMap::new();
+        updates.insert("authorization".to_string(), "new".to_string());
+        updates.insert("x-api-key".to_string(), "key".to_string());
+
+        let mut existing = BTreeMap::new();
+        existing.insert("authorization".to_string(), "old".to_string());
+        existing.insert("x-api-key".to_string(), "key".to_string());
+
+        let changed = changed_session_headers(&updates, &existing);
+        assert_eq!(
+            changed,
+            BTreeMap::from_iter(vec![("authorization".to_string(), "new".to_string())])
+        );
+    }
+
+    #[test]
+    fn config_parses_session_headers_case_insensitively() {
+        let path = temp_path("config-parse");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"session-headers = ["Authorization", "x-api-key"]"#).unwrap();
+
+        let names = load_session_header_names_from_path(Some(path)).unwrap();
+        assert!(names.contains("authorization"));
+        assert!(names.contains("x-api-key"));
+    }
+
+    #[test]
+    fn missing_session_config_returns_empty_set() {
+        let names = load_session_header_names_from_path(None).unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn persist_session_headers_sanitizes_host_and_merges_headers_table() {
+        let path = temp_path("session-merge");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "other = \"keep\"\n[headers]\nauthorization = \"old\"\n",
+        )
+        .unwrap();
+
+        let mut updates = BTreeMap::new();
+        updates.insert("authorization".to_string(), "new".to_string());
+        updates.insert("x-api-key".to_string(), "key".to_string());
+
+        persist_session_headers_to_path(&path, &updates).unwrap();
+
+        let stored = fs::read_to_string(&path).unwrap();
+        let value = toml::from_str::<toml::Value>(&stored).unwrap();
+        let headers = value.get("headers").unwrap().as_table().unwrap();
+        assert_eq!(
+            headers.get("authorization").unwrap().as_str().unwrap(),
+            "new"
+        );
+        assert_eq!(headers.get("x-api-key").unwrap().as_str().unwrap(), "key");
+        assert_eq!(value.get("other").unwrap().as_str().unwrap(), "keep");
+    }
+
+    #[test]
+    fn load_session_headers_reads_and_normalizes_keys() {
+        let path = temp_path("session-read");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[headers]\nAuthorization = \"Bearer abc\"\nX-Api-Key = \"k\"\n",
+        )
+        .unwrap();
+
+        let loaded = load_session_headers_from_path(&path).unwrap();
+        assert_eq!(
+            loaded,
+            BTreeMap::from_iter(vec![
+                ("authorization".to_string(), "Bearer abc".to_string()),
+                ("x-api-key".to_string(), "k".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn host_with_port_is_stored_safely() {
+        assert_eq!(
+            sanitize_host_path_component("api.github.com:443"),
+            "api.github.com_443"
+        );
+    }
+
+    #[test]
+    fn no_session_skips_persisting_headers() {
+        persist_session_headers(
+            "api.github.com",
+            &{
+                let mut updates = BTreeMap::new();
+                updates.insert("authorization".to_string(), "skip".to_string());
+                updates
+            },
+            true,
+        )
+        .unwrap();
+    }
+
+    fn temp_path(stem: &str) -> PathBuf {
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        env::temp_dir().join(format!("get-session-test-{stem}-{id}"))
     }
 }
