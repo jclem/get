@@ -26,8 +26,12 @@ fn get_prints_response_body_to_stdout() {
 #[test]
 fn verbose_prints_request_and_response_headers_to_stderr() {
     let body = "verbose response";
-    let (url, request_handle) =
-        spawn_server("/verbose?x=1", "200 OK", &[("x-test", "yes"), ("server", "test")], body);
+    let (url, request_handle) = spawn_server(
+        "/verbose?x=1",
+        "200 OK",
+        &[("x-test", "yes"), ("server", "test")],
+        body,
+    );
 
     let output = Command::new(env!("CARGO_BIN_EXE_get"))
         .args(["-v", &url])

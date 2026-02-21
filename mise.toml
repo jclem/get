@@ -1,2 +1,9 @@
 [tools]
 rust = "1.93.1"
+
+[tasks.pre-commit]
+run = [
+  "cargo fmt --all -- --check",
+  "cargo clippy",
+  "cargo test",
+]

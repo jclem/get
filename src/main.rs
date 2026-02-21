@@ -5,6 +5,7 @@ use reqwest::redirect::Policy;
 use reqwest::Url;
 use std::error::Error;
 use std::io::{self, Write};
+use std::net::IpAddr;
 
 #[derive(Parser)]
 #[command(name = "get")]
@@ -33,7 +34,7 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let client = Client::builder().redirect(Policy::none()).build()?;
-    let url = Url::parse(&cli.url)?;
+    let url = parse_target_url(&cli.url)?;
     let host = host_header_value(&url)?;
 
     let request = client
@@ -56,7 +57,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             http_version(request.version())
         )?;
         for (name, value) in request.headers() {
-            writeln!(stderr, "> {}: {}", name, value.to_str().unwrap_or("<binary>"))?;
+            writeln!(
+                stderr,
+                "> {}: {}",
+                name,
+                value.to_str().unwrap_or("<binary>")
+            )?;
         }
         writeln!(stderr, "> host: {host}")?;
         writeln!(stderr, ">")?;
@@ -71,7 +77,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             response.status()
         )?;
         for (name, value) in response.headers() {
-            writeln!(stderr, "< {}: {}", name, value.to_str().unwrap_or("<binary>"))?;
+            writeln!(
+                stderr,
+                "< {}: {}",
+                name,
+                value.to_str().unwrap_or("<binary>")
+            )?;
         }
         writeln!(stderr, "<")?;
     }
@@ -84,10 +95,52 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
+    if raw.contains("://") {
+        return Url::parse(raw).map_err(|error| error.into());
+    }
+
+    let host = host_for_default_scheme(raw)?;
+    let scheme = if is_local_host(host.as_deref()) {
+        "http"
+    } else {
+        "https"
+    };
+
+    Url::parse(&format!("{scheme}://{raw}")).map_err(|error| error.into())
+}
+
+fn host_for_default_scheme(raw: &str) -> Result<Option<String>, Box<dyn Error>> {
+    let with_scheme = format!("https://{raw}");
+    let parsed = Url::parse(&with_scheme)?;
+    Ok(parsed.host_str().map(|host| host.to_string()))
+}
+
+fn is_local_host(host: Option<&str>) -> bool {
+    let host = match host {
+        Some(host) => host,
+        None => return false,
+    };
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    match host.parse::<IpAddr>() {
+        Ok(ip) => match ip {
+            IpAddr::V4(ipv4) => ipv4.is_loopback() || ipv4.is_private() || ipv4.is_link_local(),
+            IpAddr::V6(ipv6) => {
+                ipv6.is_loopback() || ipv6.is_unique_local() || ipv6.is_unicast_link_local()
+            }
+        },
+        Err(_) => false,
+    }
+}
+
 fn host_header_value(url: &Url) -> Result<String, Box<dyn Error>> {
-    let host = url.host_str().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host")
-    })?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host"))?;
     let value = match url.port() {
         Some(port) => format!("{host}:{port}"),
         None => host.to_string(),
