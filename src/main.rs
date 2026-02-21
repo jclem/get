@@ -4,7 +4,7 @@ use reqwest::header::{ACCEPT, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Url;
 use std::error::Error;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::net::IpAddr;
 
 #[derive(Parser)]
@@ -22,6 +22,10 @@ struct Cli {
     /// Do not print the response body.
     #[arg(short = 'B', long)]
     no_body: bool,
+
+    /// Stream the response body as it is received.
+    #[arg(short, long)]
+    stream: bool,
 
     /// Maximum number of redirects to follow. Set to 0 to disable redirects.
     #[arg(long, default_value_t = 16)]
@@ -131,7 +135,19 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout().lock();
 
     if !cli.no_body {
-        io::copy(&mut response, &mut stdout)?;
+        if cli.stream {
+            let mut buffer = [0_u8; 16 * 1024];
+            loop {
+                let bytes = response.read(&mut buffer)?;
+                if bytes == 0 {
+                    break;
+                }
+                stdout.write_all(&buffer[..bytes])?;
+                stdout.flush()?;
+            }
+        } else {
+            io::copy(&mut response, &mut stdout)?;
+        }
         stdout.flush()?;
     }
 
