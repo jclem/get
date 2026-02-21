@@ -118,9 +118,19 @@ enum ProfileCommands {
     #[command(alias = "ls")]
     List,
 
+    /// Show all profiles and their sessions as a tree.
+    Tree,
+
     /// Remove the selected profile.
     #[command(alias = "rm")]
-    Remove,
+    Remove {
+        /// Name of the profile to remove.
+        #[arg(
+            add = ArgValueCompleter::new(complete_profile_name),
+            value_name = "PROFILE"
+        )]
+        profile: String,
+    },
 }
 
 #[derive(Subcommand, Clone, Debug)]
@@ -431,7 +441,7 @@ fn run_command(command: Commands, profile: &str) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::Config { command } => run_config_command(command),
-        Commands::Profile { command } => run_profile_command(profile, command),
+        Commands::Profile { command } => run_profile_command(command),
         Commands::Session { command } => run_session_command(profile, command),
     }
 }
@@ -442,16 +452,42 @@ fn run_config_command(command: ConfigCommands) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn run_profile_command(profile: &str, command: ProfileCommands) -> Result<(), Box<dyn Error>> {
+fn run_profile_command(command: ProfileCommands) -> Result<(), Box<dyn Error>> {
     match command {
         ProfileCommands::List => list_profiles(),
-        ProfileCommands::Remove => remove_profile(profile),
+        ProfileCommands::Tree => print_profile_tree(),
+        ProfileCommands::Remove { profile } => remove_profile(&profile),
     }
 }
 
 fn list_profiles() -> Result<(), Box<dyn Error>> {
     for name in list_profile_names()? {
         println!("{name}");
+    }
+    Ok(())
+}
+
+fn print_profile_tree() -> Result<(), Box<dyn Error>> {
+    let profiles = list_profile_names()?;
+    for (profile_i, profile) in profiles.iter().enumerate() {
+        let is_last_profile = profile_i + 1 == profiles.len();
+        let profile_indent = if is_last_profile {
+            "└─ "
+        } else {
+            "├─ "
+        };
+        println!("{profile_indent}{profile}");
+
+        let sessions = list_session_names(profile)?;
+        for (session_i, session) in sessions.iter().enumerate() {
+            let connector = if session_i + 1 == sessions.len() {
+                "└─ "
+            } else {
+                "├─ "
+            };
+            let child_indent = if is_last_profile { "   " } else { "│  " };
+            println!("{child_indent}{connector}{session}");
+        }
     }
     Ok(())
 }
@@ -1614,22 +1650,32 @@ mod tests {
 
     #[test]
     fn parses_profile_remove_subcommand() {
-        let cli =
-            Cli::try_parse_from(["get", "-p", "work", "profile", "remove"]).expect("parse cli");
+        let cli = Cli::try_parse_from(["get", "profile", "remove", "work"]).expect("parse cli");
         match cli.command {
             Some(Commands::Profile {
-                command: ProfileCommands::Remove,
-            }) => {}
+                command: ProfileCommands::Remove { profile },
+            }) => assert_eq!(profile, "work"),
             other => panic!("unexpected command: {other:?}"),
         }
     }
 
     #[test]
     fn parses_profile_rm_alias() {
-        let cli = Cli::try_parse_from(["get", "-p", "work", "profile", "rm"]).expect("parse cli");
+        let cli = Cli::try_parse_from(["get", "profile", "rm", "work"]).expect("parse cli");
         match cli.command {
             Some(Commands::Profile {
-                command: ProfileCommands::Remove,
+                command: ProfileCommands::Remove { profile },
+            }) => assert_eq!(profile, "work"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_tree_subcommand() {
+        let cli = Cli::try_parse_from(["get", "profile", "tree"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::Tree,
             }) => {}
             other => panic!("unexpected command: {other:?}"),
         }
