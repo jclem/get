@@ -1,4 +1,7 @@
+mod input_parser;
+
 use clap::Parser;
+use input_parser::parse_input;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
@@ -41,14 +44,14 @@ struct Cli {
     max_redirects: usize,
 
     /// HTTP method to use.
-    #[arg(short = 'X', long, default_value = "GET")]
-    method: String,
+    #[arg(short = 'X', long)]
+    method: Option<String>,
 
     /// The full URL to request.
     url: String,
 
-    /// Additional request headers in Header:Value format.
-    headers: Vec<String>,
+    /// Additional request inputs (Header:Value, name==value, path=value, path:=json).
+    inputs: Vec<String>,
 }
 
 fn main() {
@@ -93,18 +96,38 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let client = Client::builder().redirect(redirect_policy).build()?;
-    let url = parse_target_url(&cli.url)?;
+    let mut url = parse_target_url(&cli.url)?;
+    let parsed_input = parse_input(&cli.inputs)?;
+
+    if !parsed_input.query_params.is_empty() {
+        let mut query_pairs = url.query_pairs_mut();
+        for query in &parsed_input.query_params {
+            query_pairs.append_pair(&query.name, &query.value);
+        }
+    }
+
     let host = host_header_value(&url)?;
 
-    let method = reqwest::Method::from_bytes(cli.method.as_bytes())?;
+    let method_name = cli.method.as_deref().unwrap_or_else(|| {
+        if parsed_input.body.is_some() {
+            "POST"
+        } else {
+            "GET"
+        }
+    });
+    let method = reqwest::Method::from_bytes(method_name.as_bytes())?;
     let mut request_builder = client
         .request(method, url)
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")));
 
-    for header in &cli.headers {
-        let (name, value) = parse_header(header)?;
+    for header in &parsed_input.headers {
+        let (name, value) = parse_header(&header.name, &header.value)?;
         request_builder = request_builder.header(name, value);
+    }
+
+    if let Some(body) = parsed_input.body.as_ref() {
+        request_builder = request_builder.json(body);
     }
 
     let request = request_builder.build()?;
@@ -135,6 +158,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         writeln!(stderr, "> host: {host}")?;
         writeln!(stderr, ">")?;
+
+        if let Some(body) = request.body() {
+            if let Some(bytes) = body.as_bytes() {
+                write_prefixed_request_body(&mut stderr, bytes)?;
+            } else {
+                writeln!(stderr, "> <binary request body>")?;
+            }
+        }
     }
 
     let highlight_body = should_highlight_body();
@@ -218,11 +249,7 @@ fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
     Url::parse(&format!("{scheme}://{raw}")).map_err(|error| error.into())
 }
 
-fn parse_header(raw: &str) -> Result<(HeaderName, HeaderValue), Box<dyn Error>> {
-    let (name, value) = raw.split_once(':').ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "header must be Header:Value")
-    })?;
-
+fn parse_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Box<dyn Error>> {
     if name.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "header name is empty").into());
     }
@@ -241,10 +268,10 @@ fn should_highlight_body() -> bool {
         return false;
     }
 
-    match std::env::var("TERM") {
-        Ok(term) if term.eq_ignore_ascii_case("dumb") => false,
-        _ => true,
-    }
+    !matches!(
+        std::env::var("TERM"),
+        Ok(term) if term.eq_ignore_ascii_case("dumb")
+    )
 }
 
 fn highlight_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
@@ -366,9 +393,28 @@ fn http_version(version: reqwest::Version) -> &'static str {
     }
 }
 
+fn write_prefixed_request_body(stderr: &mut io::Stderr, bytes: &[u8]) -> io::Result<()> {
+    if bytes.is_empty() {
+        return Ok(());
+    }
+
+    if let Ok(body) = std::str::from_utf8(bytes) {
+        for line in body.lines() {
+            writeln!(stderr, "> {line}")?;
+        }
+        if body.ends_with('\n') {
+            writeln!(stderr, ">")?;
+        }
+    } else {
+        writeln!(stderr, "> <binary request body>")?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_header, syntax_token_for_content_type};
+    use super::syntax_token_for_content_type;
 
     #[test]
     fn syntax_token_matches_common_content_types() {
@@ -400,22 +446,6 @@ mod tests {
         assert_eq!(
             syntax_token_for_content_type("application/octet-stream"),
             None
-        );
-    }
-
-    #[test]
-    fn parse_header_accepts_name_and_value() {
-        let (name, value) = parse_header("Authorization:Bearer token").expect("parse header");
-        assert_eq!(name.as_str(), "authorization");
-        assert_eq!(value.to_str().expect("header value"), "Bearer token");
-    }
-
-    #[test]
-    fn parse_header_rejects_missing_separator() {
-        let error = parse_header("Authorization").expect_err("expected parse failure");
-        assert!(
-            error.to_string().contains("Header:Value"),
-            "unexpected error: {error}"
         );
     }
 }

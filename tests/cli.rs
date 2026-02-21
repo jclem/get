@@ -1,3 +1,4 @@
+use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::process::Command;
@@ -175,6 +176,25 @@ fn dry_run_does_not_send_request() {
 }
 
 #[test]
+fn dry_run_prints_request_body_to_stderr() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([
+            "--dry-run",
+            "http://127.0.0.1:1/dry-run",
+            "title=this is the title",
+        ])
+        .output()
+        .expect("failed to run get --dry-run with body");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert!(output.stdout.is_empty(), "expected no stdout output");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("> POST /dry-run HTTP/1.1"));
+    assert!(stderr.contains("> {\"title\":\"this is the title\"}"));
+}
+
+#[test]
 fn verbose_prints_request_and_response_headers_to_stderr() {
     let body = "verbose response";
     let (url, request_handle) = spawn_server(
@@ -213,6 +233,29 @@ fn verbose_prints_request_and_response_headers_to_stderr() {
 }
 
 #[test]
+fn verbose_prints_request_body_to_stderr() {
+    let body = "verbose request body";
+    let (url, request_handle) =
+        spawn_server_with_method("POST", "/verbose-body", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["-v", &url, "title=this is the title"])
+        .output()
+        .expect("failed to run get -v with body");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("> POST /verbose-body HTTP/1.1"));
+    assert!(stderr.contains("> content-type: application/json"));
+    assert!(stderr.contains("> {\"title\":\"this is the title\"}"));
+
+    let request = request_handle.join().expect("server thread panicked");
+    assert_json_body(&request, json!({"title": "this is the title"}));
+}
+
+#[test]
 fn no_body_does_not_print_response_body() {
     let body = "hidden body";
     let (url, request_handle) = spawn_server(
@@ -234,17 +277,137 @@ fn no_body_does_not_print_response_body() {
     request_handle.join().expect("server thread panicked");
 }
 
+#[test]
+fn body_input_defaults_to_post_method() {
+    let body = "created";
+    let (url, request_handle) = spawn_server_with_method("POST", "/auto-post", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([&url, "title=this is the title"])
+        .output()
+        .expect("failed to run get with body input");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let request = request_handle.join().expect("server thread panicked");
+    assert!(request.starts_with("POST /auto-post HTTP/1.1\r\n"));
+    assert_json_body(&request, json!({"title": "this is the title"}));
+}
+
+#[test]
+fn explicit_method_overrides_auto_post() {
+    let body = "ok";
+    let (url, request_handle) =
+        spawn_server_with_method("GET", "/method-override", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["-X", "GET", &url, "title=this is the title"])
+        .output()
+        .expect("failed to run get with explicit method and body");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let request = request_handle.join().expect("server thread panicked");
+    assert!(request.starts_with("GET /method-override HTTP/1.1\r\n"));
+    assert_json_body(&request, json!({"title": "this is the title"}));
+}
+
+#[test]
+fn mixed_inputs_set_header_and_json_body() {
+    let body = "created";
+    let (url, request_handle) = spawn_server_with_method("POST", "/issues", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([
+            "-X",
+            "POST",
+            &url,
+            "Authorization:Bearer foo",
+            "title=this is the title",
+            "foo[bar]:=true",
+        ])
+        .output()
+        .expect("failed to run get with mixed parser inputs");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let request = request_handle.join().expect("server thread panicked");
+    let request_lc = request.to_ascii_lowercase();
+    assert!(request.starts_with("POST /issues HTTP/1.1\r\n"));
+    assert!(request_lc.contains("\r\nauthorization: bearer foo\r\n"));
+    assert!(request_lc.contains("\r\ncontent-type: application/json\r\n"));
+    assert_json_body(
+        &request,
+        json!({
+            "title": "this is the title",
+            "foo": {"bar": true}
+        }),
+    );
+}
+
+#[test]
+fn query_inputs_append_query_params_and_repeat_keys() {
+    let body = "query response";
+    let (url, request_handle) = spawn_server_with_method_and_url(
+        "GET",
+        "/query",
+        "/query?q=one&q=two",
+        "200 OK",
+        &[],
+        body,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([&url, "q==one", "q==two"])
+        .output()
+        .expect("failed to run get with query inputs");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let request = request_handle.join().expect("server thread panicked");
+    assert!(request.starts_with("GET /query?q=one&q=two HTTP/1.1\r\n"));
+}
+
 fn spawn_server(
     expected_path_and_query: &str,
     status: &str,
     headers: &[(&str, &str)],
     body: &str,
 ) -> (String, JoinHandle<String>) {
-    spawn_server_with_method("GET", expected_path_and_query, status, headers, body)
+    spawn_server_with_method_and_url(
+        "GET",
+        expected_path_and_query,
+        expected_path_and_query,
+        status,
+        headers,
+        body,
+    )
 }
 
 fn spawn_server_with_method(
     expected_method: &str,
+    expected_path_and_query: &str,
+    status: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (String, JoinHandle<String>) {
+    spawn_server_with_method_and_url(
+        expected_method,
+        expected_path_and_query,
+        expected_path_and_query,
+        status,
+        headers,
+        body,
+    )
+}
+
+fn spawn_server_with_method_and_url(
+    expected_method: &str,
+    url_path_and_query: &str,
     expected_path_and_query: &str,
     status: &str,
     headers: &[(&str, &str)],
@@ -274,7 +437,7 @@ fn spawn_server_with_method(
         request
     });
 
-    (format!("http://{addr}{expected_path_and_query}"), handle)
+    (format!("http://{addr}{url_path_and_query}"), handle)
 }
 
 fn spawn_server_stream_chunks(
@@ -355,14 +518,28 @@ fn build_response(status: &str, headers: &[(&str, &str)], body: &str) -> String 
 fn read_http_request(stream: &mut std::net::TcpStream) -> String {
     let mut bytes = Vec::new();
     let mut buffer = [0_u8; 1024];
+    let mut content_length = None;
+    let mut header_end = None;
 
     loop {
         match stream.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => {
                 bytes.extend_from_slice(&buffer[..n]);
-                if bytes.windows(4).any(|chunk| chunk == b"\r\n\r\n") {
-                    break;
+                if header_end.is_none() {
+                    if let Some(end) = find_header_end(&bytes) {
+                        header_end = Some(end);
+                        content_length = parse_content_length(&bytes[..end]);
+                        if content_length == Some(0) {
+                            break;
+                        }
+                    }
+                }
+
+                if let (Some(end), Some(length)) = (header_end, content_length) {
+                    if bytes.len() >= end + length {
+                        break;
+                    }
                 }
             }
             Err(error)
@@ -376,4 +553,38 @@ fn read_http_request(stream: &mut std::net::TcpStream) -> String {
     }
 
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn find_header_end(bytes: &[u8]) -> Option<usize> {
+    bytes
+        .windows(4)
+        .position(|chunk| chunk == b"\r\n\r\n")
+        .map(|idx| idx + 4)
+}
+
+fn parse_content_length(header_bytes: &[u8]) -> Option<usize> {
+    let header_str = String::from_utf8_lossy(header_bytes);
+    header_str
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if !name.eq_ignore_ascii_case("content-length") {
+                return None;
+            }
+            value.trim().parse::<usize>().ok()
+        })
+        .or(Some(0))
+}
+
+fn assert_json_body(request: &str, expected: Value) {
+    let body = request_body(request);
+    let parsed: Value = serde_json::from_str(body).expect("request body should be JSON");
+    assert_eq!(parsed, expected);
+}
+
+fn request_body(request: &str) -> &str {
+    request
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or_default()
 }
