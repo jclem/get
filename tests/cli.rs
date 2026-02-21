@@ -61,6 +61,28 @@ fn verbose_prints_request_and_response_headers_to_stderr() {
     assert!(request_lc.contains("\r\nuser-agent: get/"));
 }
 
+#[test]
+fn no_body_does_not_print_response_body() {
+    let body = "hidden body";
+    let (url, request_handle) = spawn_server(
+        "/no-body",
+        "200 OK",
+        &[("content-type", "text/plain")],
+        body,
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["-B", &url])
+        .output()
+        .expect("failed to run get -B");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert!(output.stdout.is_empty(), "expected no stdout output");
+    assert!(output.stderr.is_empty(), "expected no stderr output");
+
+    request_handle.join().expect("server thread panicked");
+}
+
 fn spawn_server(
     expected_path_and_query: &str,
     status: &str,
