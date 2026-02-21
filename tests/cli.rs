@@ -121,6 +121,23 @@ fn stream_writes_body_incrementally() {
 }
 
 #[test]
+fn dry_run_does_not_send_request() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["--dry-run", "http://127.0.0.1:1/dry-run"])
+        .output()
+        .expect("failed to run get --dry-run");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert!(output.stdout.is_empty(), "expected no stdout output");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("> GET /dry-run HTTP/1.1"));
+    assert!(stderr.contains("> host: 127.0.0.1:1"));
+    assert!(stderr.contains("> accept: */*"));
+    assert!(stderr.contains("> user-agent: get/"));
+}
+
+#[test]
 fn verbose_prints_request_and_response_headers_to_stderr() {
     let body = "verbose response";
     let (url, request_handle) = spawn_server(

@@ -23,6 +23,10 @@ struct Cli {
     #[arg(short = 'B', long)]
     no_body: bool,
 
+    /// Show the request and exit without sending it.
+    #[arg(long)]
+    dry_run: bool,
+
     /// Stream the response body as it is received.
     #[arg(short, long)]
     stream: bool,
@@ -87,7 +91,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .build()?;
 
     let mut stderr = io::stderr();
-    let show_headers = cli.verbose || cli.debug;
+    let show_headers = cli.verbose || cli.debug || cli.dry_run;
 
     if show_headers {
         let path_and_query = request
@@ -113,6 +117,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         writeln!(stderr, ">")?;
     }
 
+    let mut stdout = io::stdout().lock();
+
+    if cli.dry_run {
+        return Ok(());
+    }
+
     let mut response = client.execute(request)?;
     if show_headers {
         writeln!(
@@ -131,8 +141,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         writeln!(stderr, "<")?;
     }
-
-    let mut stdout = io::stdout().lock();
 
     if !cli.no_body {
         if cli.stream {
