@@ -1,6 +1,7 @@
 mod input_parser;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{CompleteEnv, Shell};
 use input_parser::parse_input;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
@@ -20,6 +21,9 @@ use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 #[command(name = "get")]
 #[command(version, about = "A simple HTTP GET CLI")]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// Show request and response headers.
     #[arg(short, long)]
     verbose: bool,
@@ -53,10 +57,20 @@ struct Cli {
     method: Option<String>,
 
     /// The full URL to request.
-    url: String,
+    url: Option<String>,
 
     /// Additional request inputs (Header:Value, name==value, path=value, path:=json).
     inputs: Vec<String>,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+enum Commands {
+    /// Generate shell completion scripts.
+    Completions {
+        /// Shell to generate completions for.
+        #[arg(value_enum)]
+        shell: Option<Shell>,
+    },
 }
 
 fn main() {
@@ -72,7 +86,23 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    if run_dynamic_completion_from_env()? {
+        return Ok(());
+    }
+
     let cli = Cli::parse();
+
+    if let Some(command) = cli.command.clone() {
+        return run_command(command);
+    }
+
+    let url = cli.url.as_deref().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "missing URL argument (or run `get completions [shell]`)",
+        )
+    })?;
+
     let redirect_policy = if cli.debug {
         let max_redirects = cli.max_redirects;
         Policy::custom(move |attempt| {
@@ -101,7 +131,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let client = Client::builder().redirect(redirect_policy).build()?;
-    let mut url = parse_target_url(&cli.url)?;
+    let mut url = parse_target_url(url)?;
     let parsed_input = parse_input(&cli.inputs)?;
 
     if !parsed_input.query_params.is_empty() {
@@ -241,6 +271,76 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn run_command(command: Commands) -> Result<(), Box<dyn Error>> {
+    match command {
+        Commands::Completions { shell } => {
+            let shell = match shell.or_else(detect_shell_from_env) {
+                Some(shell) => shell,
+                None => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "could not detect shell from $SHELL; pass one explicitly (bash, elvish, fish, powershell, zsh)",
+                    )
+                    .into())
+                }
+            };
+
+            write_dynamic_completion_registration(shell)?;
+            Ok(())
+        }
+    }
+}
+
+fn run_dynamic_completion_from_env() -> Result<bool, Box<dyn Error>> {
+    let current_dir = std::env::current_dir().ok();
+    let completed = CompleteEnv::with_factory(|| Cli::command())
+        .bin("get")
+        .completer("get")
+        .try_complete(std::env::args_os(), current_dir.as_deref())?;
+    Ok(completed)
+}
+
+fn detect_shell_from_env() -> Option<Shell> {
+    let path = std::env::var("SHELL").ok()?;
+    let shell = std::path::Path::new(&path).file_name()?.to_str()?;
+
+    match shell {
+        "bash" => Some(Shell::Bash),
+        "elvish" => Some(Shell::Elvish),
+        "fish" => Some(Shell::Fish),
+        "pwsh" | "powershell" => Some(Shell::PowerShell),
+        "zsh" => Some(Shell::Zsh),
+        _ => None,
+    }
+}
+
+fn write_dynamic_completion_registration(shell: Shell) -> Result<(), Box<dyn Error>> {
+    let current_dir = std::env::current_dir().ok();
+    std::env::set_var("COMPLETE", shell_name(shell)?);
+    let completed = CompleteEnv::with_factory(|| Cli::command())
+        .bin("get")
+        .completer("get")
+        .try_complete([std::ffi::OsString::from("get")], current_dir.as_deref())?;
+    if !completed {
+        return Err(io::Error::other("failed to generate completion registration").into());
+    }
+    Ok(())
+}
+
+fn shell_name(shell: Shell) -> Result<&'static str, io::Error> {
+    match shell {
+        Shell::Bash => Ok("bash"),
+        Shell::Elvish => Ok("elvish"),
+        Shell::Fish => Ok("fish"),
+        Shell::PowerShell => Ok("powershell"),
+        Shell::Zsh => Ok("zsh"),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsupported shell for dynamic completions",
+        )),
+    }
 }
 
 fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {

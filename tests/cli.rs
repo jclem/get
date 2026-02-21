@@ -27,6 +27,67 @@ fn get_prints_response_body_to_stdout() {
 }
 
 #[test]
+fn completions_command_writes_bash_script() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["completions", "bash"])
+        .output()
+        .expect("failed to run get completions bash");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("COMPLETE=\"bash\""),
+        "expected dynamic bash script"
+    );
+    assert!(
+        stdout.contains("\"get\" --"),
+        "completion script should call get"
+    );
+    assert!(output.stderr.is_empty(), "expected empty stderr");
+}
+
+#[test]
+fn completions_command_uses_shell_env_when_not_provided() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .arg("completions")
+        .env("SHELL", "/bin/zsh")
+        .output()
+        .expect("failed to run get completions");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("#compdef get"),
+        "expected zsh completion output"
+    );
+    assert!(
+        stdout.contains("COMPLETE=\"zsh\""),
+        "expected dynamic zsh script"
+    );
+    assert!(output.stderr.is_empty(), "expected empty stderr");
+}
+
+#[test]
+fn dynamic_completion_env_request_returns_candidates() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["--", "get", "--he"])
+        .env("COMPLETE", "bash")
+        .env("_CLAP_COMPLETE_INDEX", "1")
+        .env("_CLAP_COMPLETE_COMP_TYPE", "9")
+        .env("_CLAP_COMPLETE_SPACE", "true")
+        .output()
+        .expect("failed to run dynamic completion request");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--help"),
+        "expected --help completion candidate"
+    );
+    assert!(output.stderr.is_empty(), "expected empty stderr");
+}
+
+#[test]
 fn stream_prints_response_body_to_stdout() {
     let body = "hello streamed response";
     let (url, request_handle) =
