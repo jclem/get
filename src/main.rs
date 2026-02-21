@@ -1,11 +1,16 @@
 use clap::Parser;
 use reqwest::blocking::Client;
-use reqwest::header::{ACCEPT, USER_AGENT};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Url;
 use std::error::Error;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::net::IpAddr;
+use std::sync::OnceLock;
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{Theme, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 
 #[derive(Parser)]
 #[command(name = "get")]
@@ -123,6 +128,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         writeln!(stderr, ">")?;
     }
 
+    let highlight_body = should_highlight_body();
     let mut stdout = io::stdout().lock();
 
     if cli.dry_run {
@@ -148,6 +154,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         writeln!(stderr, "<")?;
     }
 
+    let response_content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
     if !cli.no_body {
         if cli.stream {
             let mut buffer = [0_u8; 16 * 1024];
@@ -158,6 +170,20 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
                 stdout.write_all(&buffer[..bytes])?;
                 stdout.flush()?;
+            }
+        } else if highlight_body
+            && response_content_type
+                .as_deref()
+                .and_then(syntax_token_for_content_type)
+                .is_some()
+        {
+            let mut body = Vec::new();
+            response.read_to_end(&mut body)?;
+            if let Some(highlighted) = highlight_body_text(&body, response_content_type.as_deref())
+            {
+                stdout.write_all(highlighted.as_bytes())?;
+            } else {
+                stdout.write_all(&body)?;
             }
         } else {
             io::copy(&mut response, &mut stdout)?;
@@ -181,6 +207,90 @@ fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
     };
 
     Url::parse(&format!("{scheme}://{raw}")).map_err(|error| error.into())
+}
+
+fn should_highlight_body() -> bool {
+    if !io::stdout().is_terminal() {
+        return false;
+    }
+
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+
+    match std::env::var("TERM") {
+        Ok(term) if term.eq_ignore_ascii_case("dumb") => false,
+        _ => true,
+    }
+}
+
+fn highlight_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
+    let syntax_token = syntax_token_for_content_type(content_type?)?;
+    let source = std::str::from_utf8(body).ok()?;
+    let syntax_set = syntax_set();
+    let syntax = syntax_set
+        .find_syntax_by_token(syntax_token)
+        .or_else(|| syntax_set.find_syntax_by_extension(syntax_token))?;
+    let mut highlighter = HighlightLines::new(syntax, theme());
+    let mut output = String::new();
+
+    for line in LinesWithEndings::from(source) {
+        let ranges = highlighter.highlight_line(line, syntax_set).ok()?;
+        output.push_str(&as_24_bit_terminal_escaped(&ranges, false));
+    }
+
+    Some(output)
+}
+
+fn syntax_token_for_content_type(content_type: &str) -> Option<&'static str> {
+    let media_type = content_type.split(';').next()?.trim().to_ascii_lowercase();
+    let (type_name, subtype) = media_type.split_once('/')?;
+
+    if let Some((_, suffix)) = subtype.rsplit_once('+') {
+        match suffix {
+            "json" => return Some("json"),
+            "xml" => return Some("xml"),
+            _ => {}
+        }
+    }
+
+    match (type_name, subtype) {
+        ("text", "html") => Some("html"),
+        ("text", "css") => Some("css"),
+        ("text", "markdown") => Some("markdown"),
+        ("text", "javascript") => Some("javascript"),
+        ("text", "ecmascript") => Some("javascript"),
+        ("text", "xml") => Some("xml"),
+        ("text", "json") => Some("json"),
+        ("application", "json") => Some("json"),
+        ("application", "javascript") => Some("javascript"),
+        ("application", "x-javascript") => Some("javascript"),
+        ("application", "xml") => Some("xml"),
+        ("application", "yaml") => Some("yaml"),
+        ("application", "x-yaml") => Some("yaml"),
+        ("application", "toml") => Some("toml"),
+        ("application", "typescript") => Some("typescript"),
+        ("text", "typescript") => Some("typescript"),
+        _ => None,
+    }
+}
+
+fn syntax_set() -> &'static SyntaxSet {
+    static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+fn theme() -> &'static Theme {
+    static THEME: OnceLock<Theme> = OnceLock::new();
+    THEME.get_or_init(|| {
+        let themes = ThemeSet::load_defaults();
+        themes
+            .themes
+            .get("base16-ocean.dark")
+            .cloned()
+            .or_else(|| themes.themes.values().next().cloned())
+            .expect("syntect returned no built-in themes")
+    })
 }
 
 fn host_for_default_scheme(raw: &str) -> Result<Option<String>, Box<dyn Error>> {
@@ -230,5 +340,43 @@ fn http_version(version: reqwest::Version) -> &'static str {
         reqwest::Version::HTTP_2 => "HTTP/2.0",
         reqwest::Version::HTTP_3 => "HTTP/3.0",
         _ => "HTTP/?",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::syntax_token_for_content_type;
+
+    #[test]
+    fn syntax_token_matches_common_content_types() {
+        assert_eq!(
+            syntax_token_for_content_type("application/json"),
+            Some("json")
+        );
+        assert_eq!(
+            syntax_token_for_content_type("application/problem+json"),
+            Some("json")
+        );
+        assert_eq!(
+            syntax_token_for_content_type("text/html; charset=utf-8"),
+            Some("html")
+        );
+        assert_eq!(
+            syntax_token_for_content_type("application/javascript"),
+            Some("javascript")
+        );
+        assert_eq!(
+            syntax_token_for_content_type("application/xml"),
+            Some("xml")
+        );
+    }
+
+    #[test]
+    fn syntax_token_skips_plain_and_binary_content_types() {
+        assert_eq!(syntax_token_for_content_type("text/plain"), None);
+        assert_eq!(
+            syntax_token_for_content_type("application/octet-stream"),
+            None
+        );
     }
 }
