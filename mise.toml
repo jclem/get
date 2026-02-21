@@ -7,3 +7,9 @@ run = [
   "cargo clippy",
   "cargo test",
 ]
+
+[tasks."release:local"]
+run = [
+  "cargo build --release",
+  "cp target/release/get \"$HOME/.local/bin/get\"",
+]
