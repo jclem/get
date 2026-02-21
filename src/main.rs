@@ -21,7 +21,7 @@ struct Cli {
     verbose: bool,
 
     /// Print detailed request and redirect debugging information.
-    #[arg(short, long)]
+    #[arg(long)]
     debug: bool,
 
     /// Do not print the response body.
