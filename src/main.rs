@@ -1,6 +1,6 @@
 use clap::Parser;
 use reqwest::blocking::Client;
-use reqwest::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
+use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Url;
 use std::error::Error;
@@ -46,6 +46,9 @@ struct Cli {
 
     /// The full URL to request.
     url: String,
+
+    /// Additional request headers in Header:Value format.
+    headers: Vec<String>,
 }
 
 fn main() {
@@ -94,11 +97,17 @@ fn run() -> Result<(), Box<dyn Error>> {
     let host = host_header_value(&url)?;
 
     let method = reqwest::Method::from_bytes(cli.method.as_bytes())?;
-    let request = client
+    let mut request_builder = client
         .request(method, url)
         .header(ACCEPT, "*/*")
-        .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")))
-        .build()?;
+        .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")));
+
+    for header in &cli.headers {
+        let (name, value) = parse_header(header)?;
+        request_builder = request_builder.header(name, value);
+    }
+
+    let request = request_builder.build()?;
 
     let mut stderr = io::stderr();
     let show_headers = cli.verbose || cli.debug || cli.dry_run;
@@ -207,6 +216,20 @@ fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
     };
 
     Url::parse(&format!("{scheme}://{raw}")).map_err(|error| error.into())
+}
+
+fn parse_header(raw: &str) -> Result<(HeaderName, HeaderValue), Box<dyn Error>> {
+    let (name, value) = raw.split_once(':').ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "header must be Header:Value")
+    })?;
+
+    if name.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "header name is empty").into());
+    }
+
+    let name = HeaderName::from_bytes(name.as_bytes())?;
+    let value = HeaderValue::from_str(value)?;
+    Ok((name, value))
 }
 
 fn should_highlight_body() -> bool {
@@ -345,7 +368,7 @@ fn http_version(version: reqwest::Version) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::syntax_token_for_content_type;
+    use super::{parse_header, syntax_token_for_content_type};
 
     #[test]
     fn syntax_token_matches_common_content_types() {
@@ -377,6 +400,22 @@ mod tests {
         assert_eq!(
             syntax_token_for_content_type("application/octet-stream"),
             None
+        );
+    }
+
+    #[test]
+    fn parse_header_accepts_name_and_value() {
+        let (name, value) = parse_header("Authorization:Bearer token").expect("parse header");
+        assert_eq!(name.as_str(), "authorization");
+        assert_eq!(value.to_str().expect("header value"), "Bearer token");
+    }
+
+    #[test]
+    fn parse_header_rejects_missing_separator() {
+        let error = parse_header("Authorization").expect_err("expected parse failure");
+        assert!(
+            error.to_string().contains("Header:Value"),
+            "unexpected error: {error}"
         );
     }
 }

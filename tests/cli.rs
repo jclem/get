@@ -139,6 +139,25 @@ fn method_flag_sets_http_method() {
 }
 
 #[test]
+fn header_argument_sends_custom_header() {
+    let body = "header set";
+    let (url, request_handle) = spawn_server("/headers", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([&url, "Authorization:Bearer test-token"])
+        .output()
+        .expect("failed to run get with custom header");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+    assert!(output.stderr.is_empty(), "expected empty stderr");
+
+    let request = request_handle.join().expect("server thread panicked");
+    let request_lc = request.to_ascii_lowercase();
+    assert!(request_lc.contains("\r\nauthorization: bearer test-token\r\n"));
+}
+
+#[test]
 fn dry_run_does_not_send_request() {
     let output = Command::new(env!("CARGO_BIN_EXE_get"))
         .args(["--dry-run", "http://127.0.0.1:1/dry-run"])
