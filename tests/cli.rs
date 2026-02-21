@@ -195,6 +195,27 @@ fn dry_run_prints_request_body_to_stderr() {
 }
 
 #[test]
+fn dry_run_with_form_prints_form_body_to_stderr() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args([
+            "--dry-run",
+            "--form",
+            "http://127.0.0.1:1/dry-run",
+            "title=this is the title",
+        ])
+        .output()
+        .expect("failed to run get --dry-run --form with body");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert!(output.stdout.is_empty(), "expected no stdout output");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("> POST /dry-run HTTP/1.1"));
+    assert!(stderr.contains("> content-type: application/x-www-form-urlencoded"));
+    assert!(stderr.contains("> title=this+is+the+title"));
+}
+
+#[test]
 fn verbose_prints_request_and_response_headers_to_stderr() {
     let body = "verbose response";
     let (url, request_handle) = spawn_server(
@@ -345,6 +366,29 @@ fn mixed_inputs_set_header_and_json_body() {
             "title": "this is the title",
             "foo": {"bar": true}
         }),
+    );
+}
+
+#[test]
+fn form_flag_sets_content_type_and_urlencodes_body() {
+    let body = "created";
+    let (url, request_handle) = spawn_server_with_method("POST", "/form", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["--form", &url, "title=this is the title", "foo[bar]:=true"])
+        .output()
+        .expect("failed to run get --form");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+
+    let request = request_handle.join().expect("server thread panicked");
+    let request_lc = request.to_ascii_lowercase();
+    assert!(request.starts_with("POST /form HTTP/1.1\r\n"));
+    assert!(request_lc.contains("\r\ncontent-type: application/x-www-form-urlencoded\r\n"));
+    assert_form_body(
+        &request,
+        &[("title", "this is the title"), ("foo[bar]", "true")],
     );
 }
 
@@ -580,6 +624,78 @@ fn assert_json_body(request: &str, expected: Value) {
     let body = request_body(request);
     let parsed: Value = serde_json::from_str(body).expect("request body should be JSON");
     assert_eq!(parsed, expected);
+}
+
+fn assert_form_body(request: &str, expected: &[(&str, &str)]) {
+    let body = request_body(request);
+    let parsed = parse_form_body(body);
+
+    assert_eq!(
+        parsed.len(),
+        expected.len(),
+        "unexpected encoded form body: {body}"
+    );
+
+    for (expected_key, expected_value) in expected {
+        assert!(
+            parsed.contains(&(expected_key.to_string(), expected_value.to_string())),
+            "missing {expected_key}={expected_value} in form body: {body}"
+        );
+    }
+}
+
+fn parse_form_body(body: &str) -> Vec<(String, String)> {
+    if body.is_empty() {
+        return vec![];
+    }
+
+    body.split('&')
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (decode_form_component(key), decode_form_component(value))
+        })
+        .collect()
+}
+
+fn decode_form_component(component: &str) -> String {
+    let mut output = Vec::with_capacity(component.len());
+    let bytes = component.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                output.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                if let (Some(high), Some(low)) =
+                    (decode_hex(bytes[i + 1]), decode_hex(bytes[i + 2]))
+                {
+                    output.push((high << 4) | low);
+                    i += 3;
+                } else {
+                    output.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            byte => {
+                output.push(byte);
+                i += 1;
+            }
+        }
+    }
+
+    String::from_utf8(output).expect("form value should be valid UTF-8")
+}
+
+fn decode_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn request_body(request: &str) -> &str {

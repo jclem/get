@@ -6,6 +6,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::Url;
+use serde_json::Value;
 use std::error::Error;
 use std::io::{self, IsTerminal, Read, Write};
 use std::net::IpAddr;
@@ -38,6 +39,10 @@ struct Cli {
     /// Stream the response body as it is received.
     #[arg(short, long)]
     stream: bool,
+
+    /// Send request body as form data instead of JSON.
+    #[arg(long)]
+    form: bool,
 
     /// Maximum number of redirects to follow. Set to 0 to disable redirects.
     #[arg(long, default_value_t = 16)]
@@ -127,7 +132,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     if let Some(body) = parsed_input.body.as_ref() {
-        request_builder = request_builder.json(body);
+        if cli.form {
+            request_builder = request_builder.form(&body_to_form_fields(body));
+        } else {
+            request_builder = request_builder.json(body);
+        }
     }
 
     let request = request_builder.build()?;
@@ -257,6 +266,55 @@ fn parse_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Bo
     let name = HeaderName::from_bytes(name.as_bytes())?;
     let value = HeaderValue::from_str(value)?;
     Ok((name, value))
+}
+
+fn body_to_form_fields(body: &Value) -> Vec<(String, String)> {
+    let mut fields = Vec::new();
+    append_form_fields(None, body, &mut fields);
+    fields
+}
+
+fn append_form_fields(prefix: Option<&str>, value: &Value, fields: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            for (key, value) in map {
+                let next_key = match prefix {
+                    Some(prefix) => format!("{prefix}[{key}]"),
+                    None => key.clone(),
+                };
+                append_form_fields(Some(&next_key), value, fields);
+            }
+        }
+        Value::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                let next_key = match prefix {
+                    Some(prefix) => format!("{prefix}[{index}]"),
+                    None => index.to_string(),
+                };
+                append_form_fields(Some(&next_key), value, fields);
+            }
+        }
+        Value::Null => {
+            if let Some(prefix) = prefix {
+                fields.push((prefix.to_string(), "null".to_string()));
+            }
+        }
+        Value::Bool(boolean) => {
+            if let Some(prefix) = prefix {
+                fields.push((prefix.to_string(), boolean.to_string()));
+            }
+        }
+        Value::Number(number) => {
+            if let Some(prefix) = prefix {
+                fields.push((prefix.to_string(), number.to_string()));
+            }
+        }
+        Value::String(string) => {
+            if let Some(prefix) = prefix {
+                fields.push((prefix.to_string(), string.clone()));
+            }
+        }
+    }
 }
 
 fn should_highlight_body() -> bool {
@@ -414,7 +472,8 @@ fn write_prefixed_request_body(stderr: &mut io::Stderr, bytes: &[u8]) -> io::Res
 
 #[cfg(test)]
 mod tests {
-    use super::syntax_token_for_content_type;
+    use super::{body_to_form_fields, syntax_token_for_content_type};
+    use serde_json::json;
 
     #[test]
     fn syntax_token_matches_common_content_types() {
@@ -446,6 +505,40 @@ mod tests {
         assert_eq!(
             syntax_token_for_content_type("application/octet-stream"),
             None
+        );
+    }
+
+    #[test]
+    fn body_to_form_fields_flattens_nested_json() {
+        let body = json!({
+            "title": "hello world",
+            "meta": {"enabled": true, "count": 2}
+        });
+        let fields = body_to_form_fields(&body);
+
+        assert_eq!(
+            fields,
+            vec![
+                ("meta[count]".to_string(), "2".to_string()),
+                ("meta[enabled]".to_string(), "true".to_string()),
+                ("title".to_string(), "hello world".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn body_to_form_fields_flattens_arrays() {
+        let body = json!({
+            "tags": ["rust", "cli"]
+        });
+        let fields = body_to_form_fields(&body);
+
+        assert_eq!(
+            fields,
+            vec![
+                ("tags[0]".to_string(), "rust".to_string()),
+                ("tags[1]".to_string(), "cli".to_string()),
+            ]
         );
     }
 }
