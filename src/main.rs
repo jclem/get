@@ -35,6 +35,10 @@ struct Cli {
     #[arg(long, default_value_t = 16)]
     max_redirects: usize,
 
+    /// HTTP method to use.
+    #[arg(short = 'X', long, default_value = "GET")]
+    method: String,
+
     /// The full URL to request.
     url: String,
 }
@@ -84,8 +88,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     let url = parse_target_url(&cli.url)?;
     let host = host_header_value(&url)?;
 
+    let method = reqwest::Method::from_bytes(cli.method.as_bytes())?;
     let request = client
-        .get(url)
+        .request(method, url)
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")))
         .build()?;
@@ -102,7 +107,8 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         writeln!(
             stderr,
-            "> GET {path_and_query} {}",
+            "> {} {path_and_query} {}",
+            request.method(),
             http_version(request.version())
         )?;
         for (name, value) in request.headers() {

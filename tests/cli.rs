@@ -121,6 +121,24 @@ fn stream_writes_body_incrementally() {
 }
 
 #[test]
+fn method_flag_sets_http_method() {
+    let body = "method is set";
+    let (url, request_handle) = spawn_server_with_method("POST", "/method", "200 OK", &[], body);
+
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["-X", "POST", &url])
+        .output()
+        .expect("failed to run get -X POST");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), body);
+    assert!(output.stderr.is_empty(), "expected empty stderr");
+
+    let request = request_handle.join().expect("server thread panicked");
+    assert!(request.starts_with("POST /method HTTP/1.1\r\n"));
+}
+
+#[test]
 fn dry_run_does_not_send_request() {
     let output = Command::new(env!("CARGO_BIN_EXE_get"))
         .args(["--dry-run", "http://127.0.0.1:1/dry-run"])
@@ -203,10 +221,20 @@ fn spawn_server(
     headers: &[(&str, &str)],
     body: &str,
 ) -> (String, JoinHandle<String>) {
+    spawn_server_with_method("GET", expected_path_and_query, status, headers, body)
+}
+
+fn spawn_server_with_method(
+    expected_method: &str,
+    expected_path_and_query: &str,
+    status: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (String, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
     let addr = listener.local_addr().expect("read test server address");
     let response = build_response(status, headers, body);
-    let expected_request_line = format!("GET {expected_path_and_query} HTTP/1.1\r\n");
+    let expected_request_line = format!("{expected_method} {expected_path_and_query} HTTP/1.1\r\n");
 
     let handle = thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept client");
