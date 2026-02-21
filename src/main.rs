@@ -1,6 +1,7 @@
 mod input_parser;
 
 use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 use clap_complete::{CompleteEnv, Shell};
 use input_parser::{parse_input, ParsedHeader};
 use reqwest::blocking::Client;
@@ -20,6 +21,8 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+
+const DEFAULT_PROFILE: &str = "default";
 
 #[derive(Parser)]
 #[command(name = "get")]
@@ -43,6 +46,10 @@ struct Cli {
     /// Skip all session persistence.
     #[arg(short = 'S', long)]
     no_session: bool,
+
+    /// Use a named session profile.
+    #[arg(short = 'p', long, global = true)]
+    profile: Option<String>,
 
     /// Show the request and exit without sending it.
     #[arg(long)]
@@ -85,12 +92,93 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+
+    /// Manage session profiles.
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommands,
+    },
+
+    /// Manage session persistence.
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
 }
 
 #[derive(Subcommand, Clone, Debug)]
 enum ConfigCommands {
     /// Open the config file in $EDITOR.
     Edit,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+enum ProfileCommands {
+    /// List available session profiles.
+    #[command(alias = "ls")]
+    List,
+
+    /// Remove the selected profile.
+    #[command(alias = "rm")]
+    Remove,
+}
+
+#[derive(Subcommand, Clone, Debug)]
+enum SessionCommands {
+    /// List saved session files.
+    #[command(alias = "ls")]
+    List,
+
+    /// Edit a saved session file.
+    Edit {
+        /// Name of the session file (without .toml).
+        #[arg(
+            add = ArgValueCompleter::new(complete_session_name),
+            value_name = "SESSION"
+        )]
+        session: String,
+    },
+
+    /// Delete a saved session file.
+    #[command(alias = "rm")]
+    Delete {
+        /// Name of the session file (without .toml).
+        #[arg(
+            add = ArgValueCompleter::new(complete_session_name),
+            value_name = "SESSION"
+        )]
+        session: String,
+    },
+
+    /// Show a saved session file.
+    Show {
+        /// Name of the session file (without .toml).
+        #[arg(
+            add = ArgValueCompleter::new(complete_session_name),
+            value_name = "SESSION"
+        )]
+        session: String,
+    },
+
+    /// Switch the active session profile.
+    Switch {
+        /// Profile name to switch to.
+        #[arg(
+            add = ArgValueCompleter::new(complete_profile_name),
+            value_name = "PROFILE"
+        )]
+        profile: String,
+    },
+
+    /// Clear saved headers from a session file.
+    Clear {
+        /// Name of the session file (without .toml).
+        #[arg(
+            add = ArgValueCompleter::new(complete_session_name),
+            value_name = "SESSION"
+        )]
+        session: String,
+    },
 }
 
 fn main() {
@@ -112,8 +200,9 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let cli = Cli::parse();
 
-    if let Some(command) = cli.command.clone() {
-        return run_command(command);
+    if let Some(command) = cli.command {
+        let active_profile = active_profile(cli.profile.as_deref())?;
+        return run_command(command, &active_profile);
     }
 
     let url = cli.url.as_deref().ok_or_else(|| {
@@ -157,7 +246,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         .host_str()
         .map(str::to_string)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host"))?;
-    let loaded_session_headers = load_session_headers(&host_for_session, cli.no_session)?;
+    let active_profile = active_profile(cli.profile.as_deref())?;
+    let loaded_session_headers =
+        load_session_headers(&host_for_session, cli.no_session, &active_profile)?;
     let session_headers = if cli.no_session {
         BTreeSet::new()
     } else {
@@ -258,7 +349,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let mut response = client.execute(request)?;
-    persist_session_headers(&host_for_session, &session_updates, cli.no_session)?;
+    persist_session_headers(
+        &host_for_session,
+        &session_updates,
+        cli.no_session,
+        &active_profile,
+    )?;
     if show_headers {
         writeln!(
             stderr,
@@ -317,7 +413,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_command(command: Commands) -> Result<(), Box<dyn Error>> {
+fn run_command(command: Commands, profile: &str) -> Result<(), Box<dyn Error>> {
     match command {
         Commands::Completions { shell } => {
             let shell = match shell.or_else(detect_shell_from_env) {
@@ -335,6 +431,8 @@ fn run_command(command: Commands) -> Result<(), Box<dyn Error>> {
             Ok(())
         }
         Commands::Config { command } => run_config_command(command),
+        Commands::Profile { command } => run_profile_command(profile, command),
+        Commands::Session { command } => run_session_command(profile, command),
     }
 }
 
@@ -344,14 +442,315 @@ fn run_config_command(command: ConfigCommands) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn edit_config() -> Result<(), Box<dyn Error>> {
-    let path = config_path().ok_or_else(|| {
+fn run_profile_command(profile: &str, command: ProfileCommands) -> Result<(), Box<dyn Error>> {
+    match command {
+        ProfileCommands::List => list_profiles(),
+        ProfileCommands::Remove => remove_profile(profile),
+    }
+}
+
+fn list_profiles() -> Result<(), Box<dyn Error>> {
+    for name in list_profile_names()? {
+        println!("{name}");
+    }
+    Ok(())
+}
+
+fn list_profile_names() -> Result<Vec<String>, Box<dyn Error>> {
+    let base = profiles_root().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
-            "could not determine config path (XDG_CONFIG_HOME or HOME required)",
+            "could not determine profile directory (XDG_STATE_HOME or HOME required)",
         )
     })?;
+    read_profile_names_in_dir(&base)
+}
 
+fn read_profile_names_in_dir(profile_dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let entries = match fs::read_dir(profile_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = match path.file_name().and_then(|name| name.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+        names.push(name);
+    }
+
+    names.sort_unstable();
+    Ok(names)
+}
+
+fn remove_profile(profile: &str) -> Result<(), Box<dyn Error>> {
+    let base = profile_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine profile directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    if !base.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "profile does not exist").into());
+    }
+    fs::remove_dir_all(base)?;
+    Ok(())
+}
+
+fn switch_profile(profile: &str) -> Result<(), Box<dyn Error>> {
+    let profile = normalize_profile_name(profile)?;
+    write_active_profile(&profile)?;
+    let base = profile_state_dir(&profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine profile directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    fs::create_dir_all(base)?;
+    Ok(())
+}
+
+fn clear_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
+    let name = normalize_session_name(&session)?;
+    let base = session_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    let path = base.join(format!("{name}.toml"));
+    if !path.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "session does not exist").into());
+    }
+
+    let mut value = match fs::read_to_string(&path) {
+        Ok(content) => toml::from_str::<toml::Value>(&content)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "session does not exist").into())
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    let table = value
+        .as_table_mut()
+        .ok_or_else(|| io::Error::other("session file is not a TOML table"))?;
+    table.insert(
+        "headers".to_string(),
+        toml::Value::Table(toml::map::Map::new()),
+    );
+
+    fs::write(path, toml::to_string_pretty(&value)?)?;
+    Ok(())
+}
+
+fn run_session_command(profile: &str, command: SessionCommands) -> Result<(), Box<dyn Error>> {
+    match command {
+        SessionCommands::List => list_sessions(profile),
+        SessionCommands::Edit { session } => edit_session(session, profile),
+        SessionCommands::Delete { session } => delete_session(session, profile),
+        SessionCommands::Show { session } => show_session(session, profile),
+        SessionCommands::Switch { profile: target } => switch_profile(&target),
+        SessionCommands::Clear { session } => clear_session(session, profile),
+    }
+}
+
+fn edit_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
+    let name = normalize_session_name(&session)?;
+    let base = session_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    edit_file(base.join(format!("{name}.toml")))
+}
+
+fn delete_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
+    let name = normalize_session_name(&session)?;
+    let base = session_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    let path = base.join(format!("{name}.toml"));
+    if !path.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "session does not exist").into());
+    }
+    fs::remove_file(path)?;
+    Ok(())
+}
+
+fn show_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
+    let name = normalize_session_name(&session)?;
+    let base = session_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    let path = base.join(format!("{name}.toml"));
+    if !path.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "session does not exist").into());
+    }
+
+    let contents = fs::read_to_string(&path)?;
+    let mut stdout = io::stdout();
+
+    if should_highlight_body() {
+        if let Some(highlighted) = highlight_file_text(path.as_path(), contents.as_bytes()) {
+            stdout.write_all(highlighted.as_bytes())?;
+        } else {
+            stdout.write_all(contents.as_bytes())?;
+        }
+    } else {
+        stdout.write_all(contents.as_bytes())?;
+    }
+    stdout.flush()?;
+
+    Ok(())
+}
+
+fn list_sessions(profile: &str) -> Result<(), Box<dyn Error>> {
+    for name in list_session_names(profile)? {
+        println!("{name}");
+    }
+    Ok(())
+}
+
+fn list_session_names(profile: &str) -> Result<Vec<String>, Box<dyn Error>> {
+    let base = session_state_dir(profile).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine session directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+    read_session_names_in_dir(&base)
+}
+
+fn read_session_names_in_dir(session_dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let entries = match fs::read_dir(session_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+            continue;
+        }
+
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        names.push(name.to_string());
+    }
+
+    names.sort_unstable();
+    Ok(names)
+}
+
+fn session_candidates(profile: &str) -> Vec<String> {
+    let base = match session_state_dir(profile) {
+        Some(base) => base,
+        None => return Vec::new(),
+    };
+
+    read_session_names_in_dir(&base).unwrap_or_default()
+}
+
+fn complete_session_name(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
+    let current = current.to_string_lossy();
+    let mut candidates = Vec::new();
+    let profile = default_profile().unwrap_or_else(|_| DEFAULT_PROFILE.to_string());
+
+    for name in session_candidates(&profile) {
+        if name.starts_with(current.as_ref()) {
+            candidates.push(CompletionCandidate::new(name));
+        }
+    }
+
+    candidates
+}
+
+fn normalize_session_name(raw: &str) -> Result<&str, Box<dyn Error>> {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "session name is empty").into());
+    }
+
+    if normalized.contains('/') || normalized.contains('\\') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "session name cannot contain path separators",
+        )
+        .into());
+    }
+
+    let normalized = normalized.strip_suffix(".toml").unwrap_or(normalized);
+    if normalized.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "session name is empty").into());
+    }
+
+    Ok(normalized)
+}
+
+fn normalize_profile_name(raw: &str) -> Result<&str, Box<dyn Error>> {
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "profile name is empty").into());
+    }
+
+    if normalized.contains('/') || normalized.contains('\\') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "profile name cannot contain path separators",
+        )
+        .into());
+    }
+
+    Ok(normalized)
+}
+
+fn profile_candidates() -> Vec<String> {
+    let base = match profiles_root() {
+        Some(base) => base,
+        None => return Vec::new(),
+    };
+
+    read_profile_names_in_dir(&base).unwrap_or_default()
+}
+
+fn complete_profile_name(current: &std::ffi::OsStr) -> Vec<CompletionCandidate> {
+    let current = current.to_string_lossy();
+    let mut candidates = Vec::new();
+
+    for name in profile_candidates() {
+        if name.starts_with(current.as_ref()) {
+            candidates.push(CompletionCandidate::new(name));
+        }
+    }
+
+    candidates
+}
+
+fn edit_file(path: PathBuf) -> Result<(), Box<dyn Error>> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -375,6 +774,25 @@ fn edit_config() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn edit_config() -> Result<(), Box<dyn Error>> {
+    let path = config_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine config path (XDG_CONFIG_HOME or HOME required)",
+        )
+    })?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    if !path.exists() {
+        fs::File::create(&path)?;
+    }
+
+    edit_file(path)
 }
 
 fn run_dynamic_completion_from_env() -> Result<bool, Box<dyn Error>> {
@@ -482,12 +900,13 @@ fn changed_session_headers(
 fn load_session_headers(
     host: &str,
     no_session: bool,
+    profile: &str,
 ) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
     if no_session {
         return Ok(BTreeMap::new());
     }
 
-    let path = session_path(host)?;
+    let path = session_path(host, profile)?;
     load_session_headers_from_path(&path)
 }
 
@@ -528,12 +947,13 @@ fn persist_session_headers(
     host: &str,
     updates: &BTreeMap<String, String>,
     no_session: bool,
+    profile: &str,
 ) -> Result<(), Box<dyn Error>> {
     if no_session || updates.is_empty() {
         return Ok(());
     }
 
-    let path = session_path(host)?;
+    let path = session_path(host, profile)?;
     persist_session_headers_to_path(&path, updates)
 }
 
@@ -583,22 +1003,87 @@ fn config_path() -> Option<PathBuf> {
     Some(base.join("get").join("config.toml"))
 }
 
-fn session_state_dir() -> Option<PathBuf> {
+fn state_root() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
         })?;
-    Some(
-        base.join("get")
-            .join("profiles")
-            .join("default")
-            .join("sessions"),
-    )
+    Some(base.join("get"))
 }
 
-fn session_path(host: &str) -> Result<PathBuf, Box<dyn Error>> {
-    let base = session_state_dir().ok_or_else(|| {
+fn state_file_path() -> Option<PathBuf> {
+    Some(state_root()?.join("state.toml"))
+}
+
+fn profiles_root() -> Option<PathBuf> {
+    Some(state_root()?.join("profiles"))
+}
+
+fn profile_state_dir(profile: &str) -> Option<PathBuf> {
+    Some(profiles_root()?.join(profile))
+}
+
+fn session_state_dir(profile: &str) -> Option<PathBuf> {
+    Some(profile_state_dir(profile)?.join("sessions"))
+}
+
+fn default_profile() -> Result<String, Box<dyn Error>> {
+    let path = state_file_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine state directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+
+    let contents = match fs::read_to_string(&path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(DEFAULT_PROFILE.to_string())
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    let value = toml::from_str::<toml::Value>(&contents)?;
+    let profile = value
+        .get("default-profile")
+        .and_then(toml::Value::as_str)
+        .unwrap_or(DEFAULT_PROFILE);
+
+    Ok(normalize_profile_name(profile)?.to_string())
+}
+
+fn write_active_profile(profile: &str) -> Result<(), Box<dyn Error>> {
+    let profile = normalize_profile_name(profile)?;
+    let path = state_file_path().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "could not determine state directory (XDG_STATE_HOME or HOME required)",
+        )
+    })?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut value = toml::map::Map::new();
+    value.insert(
+        "default-profile".to_string(),
+        toml::Value::String(profile.to_string()),
+    );
+    fs::write(path, toml::to_string_pretty(&toml::Value::Table(value))?)?;
+    Ok(())
+}
+
+fn active_profile(cli_profile: Option<&str>) -> Result<String, Box<dyn Error>> {
+    match cli_profile {
+        Some(profile) => Ok(normalize_profile_name(profile)?.to_string()),
+        None => default_profile(),
+    }
+}
+
+fn session_path(host: &str, profile: &str) -> Result<PathBuf, Box<dyn Error>> {
+    let base = session_state_dir(profile).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "could not determine session directory (XDG_STATE_HOME or HOME required)",
@@ -741,6 +1226,34 @@ fn highlight_body_text(body: &[u8], content_type: Option<&str>) -> Option<String
     Some(output)
 }
 
+fn highlight_file_text(path: &Path, body: &[u8]) -> Option<String> {
+    let source = std::str::from_utf8(body).ok()?;
+    let syntax_set = syntax_set();
+    let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let syntax = syntax_set
+        .find_syntax_for_file(path)
+        .ok()
+        .flatten()
+        .or_else(|| syntax_set.find_syntax_by_name("TOML"))
+        .or_else(|| syntax_set.find_syntax_by_extension("toml"))
+        .or_else(|| {
+            if extension.eq_ignore_ascii_case("toml") {
+                syntax_set.find_syntax_by_name("JSON")
+            } else {
+                None
+            }
+        })?;
+    let mut highlighter = HighlightLines::new(syntax, theme());
+    let mut output = String::new();
+
+    for line in LinesWithEndings::from(source) {
+        let ranges = highlighter.highlight_line(line, syntax_set).ok()?;
+        output.push_str(&as_24_bit_terminal_escaped(&ranges, false));
+    }
+
+    Some(output)
+}
+
 fn syntax_token_for_content_type(content_type: &str) -> Option<&'static str> {
     let media_type = content_type.split(';').next()?.trim().to_ascii_lowercase();
     let (type_name, subtype) = media_type.split_once('/')?;
@@ -865,10 +1378,11 @@ fn write_prefixed_request_body(stderr: &mut io::Stderr, bytes: &[u8]) -> io::Res
 mod tests {
     use super::{
         body_to_form_fields, changed_session_headers, collect_header_names,
-        collect_session_headers, load_session_header_names_from_path,
+        collect_session_headers, complete_session_name, load_session_header_names_from_path,
         load_session_headers_from_path, persist_session_headers, persist_session_headers_to_path,
-        sanitize_host_path_component, syntax_token_for_content_type, Cli, Commands, ConfigCommands,
-        ParsedHeader,
+        read_profile_names_in_dir, read_session_names_in_dir, sanitize_host_path_component,
+        syntax_token_for_content_type, Cli, Commands, ConfigCommands, ParsedHeader,
+        ProfileCommands, SessionCommands, DEFAULT_PROFILE,
     };
     use clap::{CommandFactory, Parser};
     use serde_json::json;
@@ -955,6 +1469,114 @@ mod tests {
 
         assert!(help.contains("-S"));
         assert!(help.contains("--no-session"));
+        assert!(help.contains("-p"));
+        assert!(help.contains("--profile"));
+    }
+
+    #[test]
+    fn parses_profile_long_flag() {
+        let cli = Cli::try_parse_from(["get", "--profile", "work", "session", "list"])
+            .expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn parses_profile_short_flag() {
+        let cli = Cli::try_parse_from(["get", "-p", "work", "session", "list"]).expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn parses_profile_long_flag_after_subcommand() {
+        let cli = Cli::try_parse_from(["get", "session", "list", "--profile", "work"])
+            .expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_short_flag_after_subcommand() {
+        let cli = Cli::try_parse_from(["get", "session", "list", "-p", "work"]).expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_help_includes_profile_flag() {
+        let error = Cli::command()
+            .try_get_matches_from(["get", "session", "--help"])
+            .expect_err("expected clap help");
+        let help = error.to_string();
+
+        assert!(help.contains("-p"));
+        assert!(help.contains("--profile"));
+    }
+
+    #[test]
+    fn config_help_includes_profile_flag() {
+        let error = Cli::command()
+            .try_get_matches_from(["get", "config", "--help"])
+            .expect_err("expected clap help");
+        let help = error.to_string();
+
+        assert!(help.contains("-p"));
+        assert!(help.contains("--profile"));
+    }
+
+    #[test]
+    fn profile_help_includes_profile_flag() {
+        let error = Cli::command()
+            .try_get_matches_from(["get", "profile", "--help"])
+            .expect_err("expected clap help");
+        let help = error.to_string();
+
+        assert!(help.contains("-p"));
+        assert!(help.contains("--profile"));
+    }
+
+    #[test]
+    fn parses_profile_long_flag_after_config_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "config", "edit", "--profile", "work"]).expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        match cli.command {
+            Some(Commands::Config {
+                command: ConfigCommands::Edit,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_long_flag_after_profile_subcommand() {
+        let cli = Cli::try_parse_from(["get", "profile", "list", "--profile", "work"])
+            .expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_long_flag_after_url() {
+        let cli = Cli::try_parse_from(["get", "https://example.com", "--profile", "work"])
+            .expect("parse cli");
+        assert_eq!(cli.profile.as_deref(), Some("work"));
+        assert_eq!(cli.url.as_deref(), Some("https://example.com"));
+        assert!(cli.command.is_none());
     }
 
     #[test]
@@ -965,6 +1587,152 @@ mod tests {
                 command: ConfigCommands::Edit,
             }) => {}
             other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_list_subcommand() {
+        let cli = Cli::try_parse_from(["get", "profile", "list"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_ls_alias() {
+        let cli = Cli::try_parse_from(["get", "profile", "ls"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_remove_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "-p", "work", "profile", "remove"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::Remove,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_profile_rm_alias() {
+        let cli = Cli::try_parse_from(["get", "-p", "work", "profile", "rm"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Profile {
+                command: ProfileCommands::Remove,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_list_subcommand() {
+        let cli = Cli::try_parse_from(["get", "session", "list"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_ls_alias() {
+        let cli = Cli::try_parse_from(["get", "session", "ls"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::List,
+            }) => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_edit_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "session", "edit", "api.github.com"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Edit { session },
+            }) => assert_eq!(session, "api.github.com"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_delete_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "session", "delete", "api.github.com"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Delete { session },
+            }) => assert_eq!(session, "api.github.com"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_rm_alias() {
+        let cli =
+            Cli::try_parse_from(["get", "session", "rm", "api.github.com"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Delete { session },
+            }) => assert_eq!(session, "api.github.com"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_show_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "session", "show", "api.github.com"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Show { session },
+            }) => assert_eq!(session, "api.github.com"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_switch_subcommand() {
+        let cli = Cli::try_parse_from(["get", "session", "switch", "work"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Switch { profile },
+            }) => assert_eq!(profile, "work"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_session_clear_subcommand() {
+        let cli =
+            Cli::try_parse_from(["get", "session", "clear", "api.github.com"]).expect("parse cli");
+        match cli.command {
+            Some(Commands::Session {
+                command: SessionCommands::Clear { session },
+            }) => assert_eq!(session, "api.github.com"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_edit_completes_existing_sessions() {
+        let suggestions = complete_session_name(std::ffi::OsStr::new("foo"));
+        for suggestion in suggestions {
+            assert!(suggestion.get_value().to_string_lossy().starts_with("foo"));
         }
     }
 
@@ -1101,6 +1869,36 @@ mod tests {
     }
 
     #[test]
+    fn session_list_ignores_non_toml_entries_and_sorts() {
+        let stem = "session-list-sort-test";
+        let base = temp_path(stem);
+        fs::create_dir_all(&base).unwrap();
+
+        fs::write(base.join("zeta.toml"), "").unwrap();
+        fs::write(base.join("alpha.toml"), "").unwrap();
+        fs::write(base.join("readme.txt"), "").unwrap();
+        fs::create_dir(base.join("nested")).unwrap();
+
+        let names = read_session_names_in_dir(&base).unwrap();
+        assert_eq!(names, vec!["alpha".to_string(), "zeta".to_string()]);
+    }
+
+    #[test]
+    fn profile_list_ignores_non_directories_and_sorts() {
+        let stem = "profile-list-sort-test";
+        let base = temp_path(stem);
+        fs::create_dir_all(&base).unwrap();
+
+        fs::create_dir_all(base.join("zeta")).unwrap();
+        fs::create_dir_all(base.join("alpha")).unwrap();
+        fs::write(base.join("readme.txt"), "").unwrap();
+        fs::write(base.join("nested.txt"), "").unwrap();
+
+        let names = read_profile_names_in_dir(&base).unwrap();
+        assert_eq!(names, vec!["alpha".to_string(), "zeta".to_string()]);
+    }
+
+    #[test]
     fn no_session_skips_persisting_headers() {
         persist_session_headers(
             "api.github.com",
@@ -1110,6 +1908,7 @@ mod tests {
                 updates
             },
             true,
+            DEFAULT_PROFILE,
         )
         .unwrap();
     }
