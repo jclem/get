@@ -125,6 +125,8 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           SHA256_ARM=$(awk '{print $1}' dist/get-aarch64-apple-darwin.sha256)
           SHA256_INTEL=$(awk '{print $1}' dist/get-x86_64-apple-darwin.sha256)
+          SHA256_LINUX_AMD64=$(awk '{print $1}' dist/get-x86_64-unknown-linux-musl.sha256)
+          SHA256_LINUX_ARM64=$(awk '{print $1}' dist/get-aarch64-unknown-linux-musl.sha256)
 
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/jclem/homebrew-tap.git" homebrew-tap
           cd homebrew-tap
@@ -136,13 +138,26 @@ jobs:
             version "${VERSION}"
             license "MIT"
 
-            on_arm do
-              url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-apple-darwin.tar.xz"
-              sha256 "${SHA256_ARM}"
+            on_macos do
+              on_arm do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-apple-darwin.tar.xz"
+                sha256 "${SHA256_ARM}"
+              end
+              on_intel do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-apple-darwin.tar.xz"
+                sha256 "${SHA256_INTEL}"
+              end
             end
-            on_intel do
-              url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-apple-darwin.tar.xz"
-              sha256 "${SHA256_INTEL}"
+
+            on_linux do
+              on_arm do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-unknown-linux-musl.tar.xz"
+                sha256 "${SHA256_LINUX_ARM64}"
+              end
+              on_intel do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-unknown-linux-musl.tar.xz"
+                sha256 "${SHA256_LINUX_AMD64}"
+              end
             end
 
             def install
