@@ -59,6 +59,10 @@ struct Cli {
     #[arg(short, long)]
     stream: bool,
 
+    /// Disable response body formatting and syntax highlighting.
+    #[arg(short = 'H', long, global = true)]
+    no_highlight: bool,
+
     /// Send request body as form data instead of JSON.
     #[arg(long)]
     form: bool,
@@ -212,7 +216,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     if let Some(command) = cli.command {
         let active_profile = active_profile(cli.profile.as_deref())?;
-        return run_command(command, &active_profile);
+        return run_command(command, &active_profile, cli.no_highlight);
     }
 
     let url = cli.url.as_deref().ok_or_else(|| {
@@ -351,7 +355,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let highlight_body = should_highlight_body();
+    let style_output = should_style_output(cli.no_highlight);
     let mut stdout = io::stdout().lock();
 
     if cli.dry_run {
@@ -400,17 +404,26 @@ fn run() -> Result<(), Box<dyn Error>> {
                 stdout.write_all(&buffer[..bytes])?;
                 stdout.flush()?;
             }
-        } else if highlight_body
-            && response_content_type
+        } else if style_output {
+            let mut body = Vec::new();
+            response.read_to_end(&mut body)?;
+
+            let body = format_body_text(&body, response_content_type.as_deref())
+                .map(String::into_bytes)
+                .unwrap_or(body);
+
+            if response_content_type
                 .as_deref()
                 .and_then(syntax_token_for_content_type)
                 .is_some()
-        {
-            let mut body = Vec::new();
-            response.read_to_end(&mut body)?;
-            if let Some(highlighted) = highlight_body_text(&body, response_content_type.as_deref())
             {
-                stdout.write_all(highlighted.as_bytes())?;
+                if let Some(highlighted) =
+                    highlight_body_text(&body, response_content_type.as_deref())
+                {
+                    stdout.write_all(highlighted.as_bytes())?;
+                } else {
+                    stdout.write_all(&body)?;
+                }
             } else {
                 stdout.write_all(&body)?;
             }
@@ -423,7 +436,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_command(command: Commands, profile: &str) -> Result<(), Box<dyn Error>> {
+fn run_command(command: Commands, profile: &str, no_highlight: bool) -> Result<(), Box<dyn Error>> {
     match command {
         Commands::Completions { shell } => {
             let shell = match shell.or_else(detect_shell_from_env) {
@@ -442,7 +455,7 @@ fn run_command(command: Commands, profile: &str) -> Result<(), Box<dyn Error>> {
         }
         Commands::Config { command } => run_config_command(command),
         Commands::Profile { command } => run_profile_command(command),
-        Commands::Session { command } => run_session_command(profile, command),
+        Commands::Session { command } => run_session_command(profile, command, no_highlight),
     }
 }
 
@@ -588,12 +601,16 @@ fn clear_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run_session_command(profile: &str, command: SessionCommands) -> Result<(), Box<dyn Error>> {
+fn run_session_command(
+    profile: &str,
+    command: SessionCommands,
+    no_highlight: bool,
+) -> Result<(), Box<dyn Error>> {
     match command {
         SessionCommands::List => list_sessions(profile),
         SessionCommands::Edit { session } => edit_session(session, profile),
         SessionCommands::Delete { session } => delete_session(session, profile),
-        SessionCommands::Show { session } => show_session(session, profile),
+        SessionCommands::Show { session } => show_session(session, profile, no_highlight),
         SessionCommands::Switch { profile: target } => switch_profile(&target),
         SessionCommands::Clear { session } => clear_session(session, profile),
     }
@@ -626,7 +643,7 @@ fn delete_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-fn show_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
+fn show_session(session: String, profile: &str, no_highlight: bool) -> Result<(), Box<dyn Error>> {
     let name = normalize_session_name(&session)?;
     let base = session_state_dir(profile).ok_or_else(|| {
         io::Error::new(
@@ -642,7 +659,7 @@ fn show_session(session: String, profile: &str) -> Result<(), Box<dyn Error>> {
     let contents = fs::read_to_string(&path)?;
     let mut stdout = io::stdout();
 
-    if should_highlight_body() {
+    if should_style_output(no_highlight) {
         if let Some(highlighted) = highlight_file_text(path.as_path(), contents.as_bytes()) {
             stdout.write_all(highlighted.as_bytes())?;
         } else {
@@ -1251,7 +1268,11 @@ fn append_form_fields(prefix: Option<&str>, value: &Value, fields: &mut Vec<(Str
     }
 }
 
-fn should_highlight_body() -> bool {
+fn should_style_output(no_highlight: bool) -> bool {
+    if no_highlight {
+        return false;
+    }
+
     if !io::stdout().is_terminal() {
         return false;
     }
@@ -1264,6 +1285,18 @@ fn should_highlight_body() -> bool {
         std::env::var("TERM"),
         Ok(term) if term.eq_ignore_ascii_case("dumb")
     )
+}
+
+fn format_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
+    let syntax_token = syntax_token_for_content_type(content_type?)?;
+
+    match syntax_token {
+        "json" => {
+            let parsed = serde_json::from_slice::<Value>(body).ok()?;
+            serde_json::to_string_pretty(&parsed).ok()
+        }
+        _ => None,
+    }
 }
 
 fn highlight_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
@@ -1436,14 +1469,15 @@ fn write_prefixed_request_body(stderr: &mut io::Stderr, bytes: &[u8]) -> io::Res
 mod tests {
     use super::{
         body_to_form_fields, changed_session_headers, collect_header_names,
-        collect_session_headers, complete_session_name, load_session_header_names_from_path,
-        load_session_headers_from_path, persist_session_headers, persist_session_headers_to_path,
-        read_profile_names_in_dir, read_session_names_in_dir, sanitize_host_path_component,
-        syntax_token_for_content_type, Cli, Commands, ConfigCommands, ParsedHeader,
-        ProfileCommands, SessionCommands, DEFAULT_PROFILE,
+        collect_session_headers, complete_session_name, format_body_text,
+        load_session_header_names_from_path, load_session_headers_from_path,
+        persist_session_headers, persist_session_headers_to_path, read_profile_names_in_dir,
+        read_session_names_in_dir, sanitize_host_path_component, syntax_token_for_content_type,
+        Cli, Commands, ConfigCommands, ParsedHeader, ProfileCommands, SessionCommands,
+        DEFAULT_PROFILE,
     };
     use clap::{CommandFactory, Parser};
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::{
         collections::{BTreeMap, BTreeSet},
         env, fs,
@@ -1482,6 +1516,29 @@ mod tests {
             syntax_token_for_content_type("application/octet-stream"),
             None
         );
+    }
+
+    #[test]
+    fn format_body_text_pretty_prints_json() {
+        let formatted = format_body_text(
+            br#"{"title":"hello","meta":{"enabled":true}}"#,
+            Some("application/json"),
+        )
+        .expect("json should format");
+
+        let parsed: Value = serde_json::from_str(&formatted).expect("formatted json should parse");
+        assert_eq!(parsed, json!({"title": "hello", "meta": {"enabled": true}}));
+        assert!(formatted.contains("\n  "));
+    }
+
+    #[test]
+    fn format_body_text_skips_non_json_content() {
+        assert!(format_body_text(b"plain text", Some("text/plain")).is_none());
+    }
+
+    #[test]
+    fn format_body_text_skips_invalid_json() {
+        assert!(format_body_text(br#"{"title":}"#, Some("application/json")).is_none());
     }
 
     #[test]
@@ -1528,6 +1585,8 @@ mod tests {
         assert!(help.contains("--no-session"));
         assert!(help.contains("-p"));
         assert!(help.contains("--profile"));
+        assert!(help.contains("-H"));
+        assert!(help.contains("--no-highlight"));
     }
 
     #[test]
@@ -1541,6 +1600,19 @@ mod tests {
     fn parses_profile_short_flag() {
         let cli = Cli::try_parse_from(["get", "-p", "work", "session", "list"]).expect("parse cli");
         assert_eq!(cli.profile.as_deref(), Some("work"));
+    }
+
+    #[test]
+    fn parses_no_highlight_long_flag() {
+        let cli =
+            Cli::try_parse_from(["get", "--no-highlight", "https://example.com"]).expect("parse");
+        assert!(cli.no_highlight);
+    }
+
+    #[test]
+    fn parses_no_highlight_short_flag() {
+        let cli = Cli::try_parse_from(["get", "-H", "https://example.com"]).expect("parse");
+        assert!(cli.no_highlight);
     }
 
     #[test]
