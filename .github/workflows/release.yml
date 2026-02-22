@@ -136,15 +136,13 @@ jobs:
             version "${VERSION}"
             license "MIT"
 
-            on_macos do
-              on_arm do
-                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-apple-darwin.tar.xz"
-                sha256 "${SHA256_ARM}"
-              end
-              on_intel do
-                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-apple-darwin.tar.xz"
-                sha256 "${SHA256_INTEL}"
-              end
+            on_arm do
+              url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-apple-darwin.tar.xz"
+              sha256 "${SHA256_ARM}"
+            end
+            on_intel do
+              url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-apple-darwin.tar.xz"
+              sha256 "${SHA256_INTEL}"
             end
 
             def install
