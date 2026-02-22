@@ -262,7 +262,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let session_headers = if cli.no_session {
         BTreeSet::new()
     } else {
-        load_session_header_names()?
+        load_session_header_names(&host_for_session)?
     };
     let mut tracked_session_headers = session_headers.clone();
     tracked_session_headers.extend(loaded_session_headers.keys().cloned());
@@ -871,14 +871,24 @@ fn write_dynamic_completion_registration(shell: Shell) -> Result<(), Box<dyn Err
 struct Config {
     #[serde(rename = "session-headers", default)]
     session_headers: Vec<String>,
+
+    #[serde(default)]
+    sessions: BTreeMap<String, SessionConfig>,
 }
 
-fn load_session_header_names() -> Result<BTreeSet<String>, Box<dyn Error>> {
-    load_session_header_names_from_path(config_path())
+#[derive(Debug, Deserialize)]
+struct SessionConfig {
+    #[serde(rename = "session-headers", default)]
+    session_headers: Vec<String>,
+}
+
+fn load_session_header_names(host: &str) -> Result<BTreeSet<String>, Box<dyn Error>> {
+    load_session_header_names_from_path(config_path(), host)
 }
 
 fn load_session_header_names_from_path(
     path: Option<PathBuf>,
+    host: &str,
 ) -> Result<BTreeSet<String>, Box<dyn Error>> {
     let path = match path {
         Some(path) => path,
@@ -892,6 +902,18 @@ fn load_session_header_names_from_path(
     };
 
     let config: Config = toml::from_str(&content)?;
+    if let Some(session) = config
+        .sessions
+        .into_iter()
+        .find_map(|(name, session)| name.eq_ignore_ascii_case(host).then_some(session))
+    {
+        return Ok(session
+            .session_headers
+            .into_iter()
+            .map(|name| name.to_ascii_lowercase())
+            .collect());
+    }
+
     Ok(config
         .session_headers
         .into_iter()
@@ -1847,14 +1869,55 @@ mod tests {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, r#"session-headers = ["Authorization", "x-api-key"]"#).unwrap();
 
-        let names = load_session_header_names_from_path(Some(path)).unwrap();
+        let names = load_session_header_names_from_path(Some(path), "api.github.com").unwrap();
         assert!(names.contains("authorization"));
         assert!(names.contains("x-api-key"));
     }
 
     #[test]
+    fn config_uses_session_specific_headers_instead_of_global() {
+        let path = temp_path("config-session-headers");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"
+session-headers = ["Authorization"]
+[sessions."api.example.com"]
+session-headers = ["X-Session-Token"]
+"#,
+        )
+        .unwrap();
+
+        let names = load_session_header_names_from_path(Some(path), "api.example.com").unwrap();
+        assert_eq!(
+            names,
+            BTreeSet::from_iter(vec!["x-session-token".to_string(),])
+        );
+    }
+
+    #[test]
+    fn config_matches_session_specific_headers_case_insensitively_by_host() {
+        let path = temp_path("config-session-host-case");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"
+[sessions."API.EXAMPLE.COM"]
+session-headers = ["X-Session-Token"]
+"#,
+        )
+        .unwrap();
+
+        let names = load_session_header_names_from_path(Some(path), "api.example.com").unwrap();
+        assert_eq!(
+            names,
+            BTreeSet::from_iter(vec!["x-session-token".to_string()])
+        );
+    }
+
+    #[test]
     fn missing_session_config_returns_empty_set() {
-        let names = load_session_header_names_from_path(None).unwrap();
+        let names = load_session_header_names_from_path(None, "api.github.com").unwrap();
         assert!(names.is_empty());
     }
 

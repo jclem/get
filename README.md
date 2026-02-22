@@ -278,7 +278,12 @@ Example config snippet:
 
 ```toml
 session-headers = ["Authorization", "x-api-key"]
+
+[sessions."api.example.com"]
+session-headers = ["x-session-token"]
 ```
+
+When requesting `api.example.com`, host-specific `session-headers` replace the global list (no merge).
 
 ## Shell Completions
 
