@@ -152,5 +152,6 @@ if [[ -f Cargo.lock ]]; then
 fi
 git commit -m "v${new_version}"
 git tag --sign "v${new_version}" -m "Relase v${new_version}"
+git push --follow-tags
 
-echo "Created commit and signed tag for v${new_version}"
+echo "Created commit, signed tag, and pushed with --follow-tags for v${new_version}"
