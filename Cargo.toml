@@ -1,6 +1,6 @@
 [package]
 name = "get"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 repository = "https://github.com/jclem/get"
 
@@ -13,8 +13,3 @@ serde_json = "1.0"
 toml = "0.8"
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
 winnow = "0.7"
-
-# The profile that 'dist' will build with
-[profile.dist]
-inherits = "release"
-lto = "thin"

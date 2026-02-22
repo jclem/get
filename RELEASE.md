@@ -23,10 +23,15 @@ Update `version` in `Cargo.toml`.
 mise run release:check
 ```
 
-Optional local dist smoke build (host target only):
+Optional local archive smoke build (host target only):
 
 ```bash
-mise run release:smoke-dist
+TARGET=$(rustc -vV | awk '/host:/ {print $2}')
+cargo build --locked --release --target "$TARGET"
+mkdir -p target/release-smoke/get-"$TARGET"
+cp target/"$TARGET"/release/get target/release-smoke/get-"$TARGET"/get
+tar -C target/release-smoke -cJf target/release-smoke/get-"$TARGET".tar.xz get-"$TARGET"
+shasum -a 256 target/release-smoke/get-"$TARGET".tar.xz
 ```
 
 ## 3. Merge to `main`
@@ -43,7 +48,8 @@ git tag -a "$TAG" -m "Release $TAG"
 git push origin "$TAG"
 ```
 
-Pushing the tag triggers `.github/workflows/release.yml`.
+Pushing the tag triggers `.github/workflows/release.yml`, which builds archives for all
+supported targets and publishes a GitHub Release.
 
 ## 5. Verify GitHub Release assets
 
@@ -78,4 +84,4 @@ mise x github:jclem/get@"$VERSION" -- get --version
 
 ## 8. Publish notes
 
-Use GitHub release notes (auto-generated notes are acceptable).
+Release notes are generated automatically by the workflow.
