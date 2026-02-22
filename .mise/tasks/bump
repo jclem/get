@@ -1,26 +1,12 @@
 #!/usr/bin/env bash
 #MISE description="Bump Cargo.toml version, commit v{version}, and create a signed tag"
 #USAGE about "Bump Cargo.toml version, commit v{version}, and create a signed tag"
-#USAGE arg "<part>"
+#USAGE arg "<part>" help="Version part to bump" {
+#USAGE   choices "major" "minor" "patch"
+#USAGE }
 set -euo pipefail
 
-usage() {
-  echo "Usage: mise bump <major|minor|patch>" >&2
-}
-
-if [[ $# -ne 1 ]]; then
-  usage
-  exit 1
-fi
-
-part="$1"
-case "$part" in
-  major | minor | patch) ;;
-  *)
-    usage
-    exit 1
-    ;;
-esac
+part="${usage_part?}"
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
