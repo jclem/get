@@ -37,20 +37,20 @@ Download the platform archive and checksum file from the release page:
 
 ```bash
 VERSION=v0.1.0
-gh release download "$VERSION" --repo jclem/get --pattern 'get-x86_64-unknown-linux-gnu.tar.xz' --pattern 'sha256.sum'
+gh release download "$VERSION" --repo jclem/get --pattern 'get-aarch64-apple-darwin.tar.xz' --pattern 'sha256.sum'
 ```
 
 Verify checksums:
 
 ```bash
-grep 'get-x86_64-unknown-linux-gnu.tar.xz' sha256.sum | shasum -a 256 -c -
+grep 'get-aarch64-apple-darwin.tar.xz' sha256.sum | shasum -a 256 -c -
 ```
 
 Extract and install:
 
 ```bash
-tar -xJf get-x86_64-unknown-linux-gnu.tar.xz
-install -m 0755 get-x86_64-unknown-linux-gnu/get "$HOME/.local/bin/get"
+tar -xJf get-aarch64-apple-darwin.tar.xz
+install -m 0755 get-aarch64-apple-darwin/get "$HOME/.local/bin/get"
 ```
 
 ### From source (contributors)
