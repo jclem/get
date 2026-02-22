@@ -544,8 +544,8 @@ fn remove_profile(profile: &str) -> Result<(), Box<dyn Error>> {
 
 fn switch_profile(profile: &str) -> Result<(), Box<dyn Error>> {
     let profile = normalize_profile_name(profile)?;
-    write_active_profile(&profile)?;
-    let base = profile_state_dir(&profile).ok_or_else(|| {
+    write_active_profile(profile)?;
+    let base = profile_state_dir(profile).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::NotFound,
             "could not determine profile directory (XDG_STATE_HOME or HOME required)",
@@ -833,7 +833,7 @@ fn edit_config() -> Result<(), Box<dyn Error>> {
 
 fn run_dynamic_completion_from_env() -> Result<bool, Box<dyn Error>> {
     let current_dir = std::env::current_dir().ok();
-    let completed = CompleteEnv::with_factory(|| Cli::command())
+    let completed = CompleteEnv::with_factory(Cli::command)
         .bin("get")
         .completer("get")
         .try_complete(std::env::args_os(), current_dir.as_deref())?;
@@ -857,7 +857,7 @@ fn detect_shell_from_env() -> Option<Shell> {
 fn write_dynamic_completion_registration(shell: Shell) -> Result<(), Box<dyn Error>> {
     let current_dir = std::env::current_dir().ok();
     std::env::set_var("COMPLETE", shell_name(shell)?);
-    let completed = CompleteEnv::with_factory(|| Cli::command())
+    let completed = CompleteEnv::with_factory(Cli::command)
         .bin("get")
         .completer("get")
         .try_complete([std::ffi::OsString::from("get")], current_dir.as_deref())?;
@@ -1428,7 +1428,6 @@ mod tests {
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
-    use toml;
 
     #[test]
     fn syntax_token_matches_common_content_types() {

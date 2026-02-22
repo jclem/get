@@ -155,7 +155,7 @@ fn stream_writes_body_incrementally() {
 
     assert!(
         wait(&|received| {
-            let response = String::from_utf8_lossy(&received).to_string();
+            let response = String::from_utf8_lossy(received).to_string();
             response.starts_with("chunk one")
         }),
         "expected first chunk before timeout"
