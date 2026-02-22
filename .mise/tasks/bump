@@ -34,6 +34,24 @@ if [[ -z "$current_version" ]]; then
   exit 1
 fi
 
+package_name="$(
+  awk '
+    /^\[package\]/ { in_package=1; next }
+    in_package && /^\[/ { in_package=0 }
+    in_package && $0 ~ /^name[[:space:]]*=/ {
+      if (match($0, /"[^"]+"/)) {
+        print substr($0, RSTART + 1, RLENGTH - 2)
+        exit
+      }
+    }
+  ' Cargo.toml
+)"
+
+if [[ -z "$package_name" ]]; then
+  echo "Could not find package name in Cargo.toml" >&2
+  exit 1
+fi
+
 if [[ ! "$current_version" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
   echo "Unsupported version format: $current_version" >&2
   exit 1
@@ -92,7 +110,46 @@ awk -v new_version="$new_version" '
 mv "$tmp_file" Cargo.toml
 tmp_file=""
 
+if [[ -f Cargo.lock ]]; then
+  tmp_file="$(mktemp "${TMPDIR:-/tmp}/cargo-lock.XXXXXX")"
+
+  awk -v pkg_name="$package_name" -v old_version="$current_version" -v new_version="$new_version" '
+    $0 == "[[package]]" {
+      in_package = 1
+      in_target_package = 0
+      print
+      next
+    }
+
+    in_package && $0 == ("name = \"" pkg_name "\"") {
+      in_target_package = 1
+      print
+      next
+    }
+
+    in_target_package && !updated && $0 == ("version = \"" old_version "\"") {
+      print "version = \"" new_version "\""
+      updated = 1
+      next
+    }
+
+    { print }
+
+    END {
+      if (!updated) {
+        exit 2
+      }
+    }
+  ' Cargo.lock > "$tmp_file"
+
+  mv "$tmp_file" Cargo.lock
+  tmp_file=""
+fi
+
 git add Cargo.toml
+if [[ -f Cargo.lock ]]; then
+  git add Cargo.lock
+fi
 git commit -m "v${new_version}"
 git tag --sign "v${new_version}" -m "Relase v${new_version}"
 
