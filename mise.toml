@@ -1,6 +1,5 @@
 [tools]
 rust = "1.93.1"
-"cargo:cargo-dist" = "0.30.4"
 
 [tasks.pre-commit]
 run = [
@@ -14,12 +13,6 @@ run = [
   "cargo fmt --all -- --check",
   "cargo clippy --all-targets --all-features",
   "cargo test",
-  "dist plan --allow-dirty",
-]
-
-[tasks."release:smoke-dist"]
-run = [
-  "dist build --artifacts=local --target $(rustc -vV | awk '/host:/ {print $2}') --allow-dirty",
 ]
 
 [tasks."release:local"]
