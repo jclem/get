@@ -2,6 +2,7 @@
 rust = "1.93.1"
 
 [tasks.pre-commit]
+description = "Run formatting, linting, and tests"
 run = [
   "cargo fmt --all -- --check",
   "cargo clippy --all-targets --all-features",
@@ -9,6 +10,7 @@ run = [
 ]
 
 [tasks."release:check"]
+description = "Run release readiness checks"
 run = [
   "cargo fmt --all -- --check",
   "cargo clippy --all-targets --all-features",
@@ -16,6 +18,7 @@ run = [
 ]
 
 [tasks."release:local"]
+description = "Build a local release binary and install it"
 run = [
   "cargo build --release",
   "cp target/release/get \"$HOME/.local/bin/get\"",
