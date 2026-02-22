@@ -10,20 +10,10 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04
-            target: aarch64-unknown-linux-gnu
-          - runner: macos-13
-            target: x86_64-apple-darwin
-          - runner: macos-14
-            target: aarch64-apple-darwin
+    name: Build (aarch64-apple-darwin)
+    runs-on: macos-14
+    env:
+      TARGET: aarch64-apple-darwin
 
     steps:
       - name: Checkout
@@ -32,36 +22,24 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          targets: ${{ matrix.target }}
+          toolchain: stable
+          targets: ${{ env.TARGET }}
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
-          key: release-${{ matrix.target }}
+          shared-key: release-${{ runner.os }}-${{ env.TARGET }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Install Linux cross toolchain
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-
-      - name: Build (native targets)
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
-        run: cargo build --locked --release --target "${{ matrix.target }}"
-
-      - name: Build (aarch64 Linux cross target)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --locked --release --target "${{ matrix.target }}"
+      - name: Build
+        run: cargo build --locked --release --target "${{ env.TARGET }}"
 
       - name: Package archive
         shell: bash
         run: |
           set -euo pipefail
-          pkg_dir="get-${{ matrix.target }}"
+          pkg_dir="get-${TARGET}"
           mkdir "$pkg_dir"
-          cp "target/${{ matrix.target }}/release/get" "$pkg_dir/get"
+          cp "target/${TARGET}/release/get" "$pkg_dir/get"
           chmod +x "$pkg_dir/get"
           tar -cJf "${pkg_dir}.tar.xz" "$pkg_dir"
           shasum -a 256 "${pkg_dir}.tar.xz" > "${pkg_dir}.sha256"
@@ -69,10 +47,10 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: release-${{ matrix.target }}
+          name: release-${{ env.TARGET }}
           path: |
-            get-${{ matrix.target }}.tar.xz
-            get-${{ matrix.target }}.sha256
+            get-${{ env.TARGET }}.tar.xz
+            get-${{ env.TARGET }}.sha256
 
   release:
     name: Publish GitHub Release
@@ -83,9 +61,8 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: release-*
+          name: release-aarch64-apple-darwin
           path: dist
-          merge-multiple: true
 
       - name: Create checksum manifest
         run: |
