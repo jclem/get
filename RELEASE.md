@@ -27,6 +27,8 @@ After the workflow finishes, verify that the release includes archives for:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`
+- `x86_64-unknown-linux-musl`
+- `aarch64-unknown-linux-musl`
 
 Also verify a SHA256 checksum file is attached.
 
