@@ -300,4 +300,4 @@ get completions fish
 
 - With `:=`, JSON must be valid. Use JSON strings when needed: `name:='"alice"'`.
 - Use `--dry-run` when building complex request syntax to verify the final request before sending.
-- Response formatting and syntax highlighting are enabled only when stdout is a TTY; `-H/--no-highlight` disables both.
+- Response formatting (JSON/HTML) and syntax highlighting are enabled only when stdout is a TTY; `-H/--no-highlight` disables both.

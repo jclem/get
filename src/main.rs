@@ -3,7 +3,10 @@ mod input_parser;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 use clap_complete::{CompleteEnv, Shell};
+use html5ever::parse_document;
+use html5ever::tendril::TendrilSink;
 use input_parser::{parse_input, ParsedHeader};
+use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};
 use reqwest::redirect::Policy;
@@ -1295,8 +1298,219 @@ fn format_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
             let parsed = serde_json::from_slice::<Value>(body).ok()?;
             serde_json::to_string_pretty(&parsed).ok()
         }
+        "html" => format_html_text(body),
         _ => None,
     }
+}
+
+fn format_html_text(body: &[u8]) -> Option<String> {
+    let mut input = body;
+    let dom = parse_document(RcDom::default(), Default::default())
+        .from_utf8()
+        .read_from(&mut input)
+        .ok()?;
+
+    let mut output = String::new();
+    for child in dom.document.children.borrow().iter() {
+        render_html_node(child, 0, &mut output, None);
+    }
+
+    if output.is_empty() {
+        None
+    } else {
+        Some(output)
+    }
+}
+
+fn render_html_node(handle: &Handle, indent: usize, output: &mut String, parent_tag: Option<&str>) {
+    match &handle.data {
+        NodeData::Document => {
+            for child in handle.children.borrow().iter() {
+                render_html_node(child, indent, output, None);
+            }
+        }
+        NodeData::Doctype {
+            name,
+            public_id,
+            system_id,
+        } => {
+            write_indent(output, indent);
+            output.push_str("<!DOCTYPE ");
+            output.push_str(name.as_ref());
+            if !public_id.is_empty() {
+                output.push_str(" PUBLIC \"");
+                output.push_str(public_id.as_ref());
+                output.push('"');
+            }
+            if !system_id.is_empty() {
+                output.push_str(" \"");
+                output.push_str(system_id.as_ref());
+                output.push('"');
+            }
+            output.push_str(">\n");
+        }
+        NodeData::Comment { contents } => {
+            write_indent(output, indent);
+            output.push_str("<!--");
+            output.push_str(contents.as_ref());
+            output.push_str("-->\n");
+        }
+        NodeData::Text { contents } => {
+            let text = contents.borrow();
+            let text = text.as_ref();
+            if text.trim().is_empty() {
+                return;
+            }
+
+            if parent_tag.is_some_and(is_raw_text_element) {
+                for line in text.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    write_indent(output, indent);
+                    output.push_str(line.trim_end());
+                    output.push('\n');
+                }
+                return;
+            }
+
+            let collapsed = collapse_whitespace(text);
+            if collapsed.is_empty() {
+                return;
+            }
+            write_indent(output, indent);
+            output.push_str(&escape_html_text(&collapsed));
+            output.push('\n');
+        }
+        NodeData::Element {
+            name,
+            attrs,
+            template_contents: _,
+            mathml_annotation_xml_integration_point: _,
+        } => {
+            let tag = name.local.as_ref();
+            write_indent(output, indent);
+            output.push('<');
+            output.push_str(tag);
+
+            for attr in attrs.borrow().iter() {
+                output.push(' ');
+                output.push_str(attr.name.local.as_ref());
+                output.push_str("=\"");
+                output.push_str(&escape_html_attr(attr.value.as_ref()));
+                output.push('"');
+            }
+
+            if is_void_element(tag) {
+                output.push_str(">\n");
+                return;
+            }
+
+            let children = handle.children.borrow();
+            if children.is_empty() {
+                output.push_str("></");
+                output.push_str(tag);
+                output.push_str(">\n");
+                return;
+            }
+
+            output.push_str(">\n");
+            for child in children.iter() {
+                render_html_node(child, indent + 1, output, Some(tag));
+            }
+            write_indent(output, indent);
+            output.push_str("</");
+            output.push_str(tag);
+            output.push_str(">\n");
+        }
+        NodeData::ProcessingInstruction { target, contents } => {
+            write_indent(output, indent);
+            output.push_str("<?");
+            output.push_str(target.as_ref());
+            if !contents.is_empty() {
+                output.push(' ');
+                output.push_str(contents.as_ref());
+            }
+            output.push_str("?>\n");
+        }
+    }
+}
+
+fn write_indent(output: &mut String, indent: usize) {
+    for _ in 0..indent {
+        output.push_str("  ");
+    }
+}
+
+fn is_void_element(tag: &str) -> bool {
+    matches!(
+        tag,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+fn is_raw_text_element(tag: &str) -> bool {
+    matches!(tag, "script" | "style" | "pre" | "textarea")
+}
+
+fn collapse_whitespace(input: &str) -> String {
+    let mut output = String::new();
+    let mut saw_whitespace = false;
+
+    for ch in input.chars() {
+        if ch.is_whitespace() {
+            saw_whitespace = true;
+            continue;
+        }
+
+        if saw_whitespace && !output.is_empty() {
+            output.push(' ');
+        }
+        saw_whitespace = false;
+        output.push(ch);
+    }
+
+    output
+}
+
+fn escape_html_text(input: &str) -> String {
+    let mut output = String::new();
+    for ch in input.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
+fn escape_html_attr(input: &str) -> String {
+    let mut output = String::new();
+    for ch in input.chars() {
+        match ch {
+            '&' => output.push_str("&amp;"),
+            '<' => output.push_str("&lt;"),
+            '>' => output.push_str("&gt;"),
+            '"' => output.push_str("&quot;"),
+            _ => output.push(ch),
+        }
+    }
+    output
 }
 
 fn highlight_body_text(body: &[u8], content_type: Option<&str>) -> Option<String> {
@@ -1534,6 +1748,20 @@ mod tests {
     #[test]
     fn format_body_text_skips_non_json_content() {
         assert!(format_body_text(b"plain text", Some("text/plain")).is_none());
+    }
+
+    #[test]
+    fn format_body_text_pretty_prints_html() {
+        let formatted = format_body_text(
+            br#"<!doctype html><html><body><h1>Hello</h1><p>World</p></body></html>"#,
+            Some("text/html"),
+        )
+        .expect("html should format");
+
+        assert!(formatted.contains("<!DOCTYPE html>"));
+        assert!(formatted.contains("\n  <body>\n"));
+        assert!(formatted.contains("\n      Hello\n"));
+        assert!(formatted.contains("\n      World\n"));
     }
 
     #[test]
