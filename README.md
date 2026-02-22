@@ -11,52 +11,8 @@ A convenient HTTP CLI with expressive inline request syntax.
 
 ## Install
 
-### With mise (recommended)
-
-Install the latest release:
-
-```bash
-mise use -g github:jclem/get@latest
-```
-
-Install a specific release:
-
-```bash
-mise use -g github:jclem/get@0.1.0
-```
-
-### With Homebrew (macOS)
-
 ```bash
 brew install jclem/tap/get
-```
-
-### From GitHub Releases (manual fallback)
-
-Download the platform archive and checksum file from the release page:
-
-```bash
-VERSION=v0.1.0
-gh release download "$VERSION" --repo jclem/get --pattern 'get-aarch64-apple-darwin.tar.xz' --pattern 'sha256.sum'
-```
-
-Verify checksums:
-
-```bash
-grep 'get-aarch64-apple-darwin.tar.xz' sha256.sum | shasum -a 256 -c -
-```
-
-Extract and install:
-
-```bash
-tar -xJf get-aarch64-apple-darwin.tar.xz
-install -m 0755 get-aarch64-apple-darwin/get "$HOME/.local/bin/get"
-```
-
-### From source (contributors)
-
-```bash
-cargo install --path .
 ```
 
 Or run directly in this repo:
