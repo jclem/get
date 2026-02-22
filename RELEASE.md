@@ -82,6 +82,18 @@ mise ls-remote github:jclem/get | head
 mise x github:jclem/get@"$VERSION" -- get --version
 ```
 
-## 8. Publish notes
+## 8. Verify Homebrew tap
+
+The release workflow automatically updates the formula in `jclem/homebrew-tap`. Verify:
+
+```bash
+brew update
+brew install jclem/tap/get
+get --version
+```
+
+Note: The Homebrew tap update is skipped for prerelease tags (those containing `-`).
+
+## 9. Publish notes
 
 Release notes are generated automatically by the workflow.

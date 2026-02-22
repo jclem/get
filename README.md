@@ -25,6 +25,12 @@ Install a specific release:
 mise use -g github:jclem/get@0.1.0
 ```
 
+### With Homebrew (macOS)
+
+```bash
+brew install jclem/tap/get
+```
+
 ### From GitHub Releases (manual fallback)
 
 Download the platform archive and checksum file from the release page:

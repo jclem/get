@@ -10,10 +10,17 @@ permissions:
 
 jobs:
   build:
-    name: Build (aarch64-apple-darwin)
-    runs-on: macos-14
+    name: Build (${{ matrix.target }})
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-apple-darwin
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
     env:
-      TARGET: aarch64-apple-darwin
+      TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout
@@ -64,8 +71,9 @@ jobs:
       - name: Download build artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: release-aarch64-apple-darwin
+          pattern: release-*
           path: dist
+          merge-multiple: true
 
       - name: Create checksum manifest
         run: |
@@ -93,3 +101,50 @@ jobs:
             "${prerelease_flag[@]}" \
             dist/get-*.tar.xz \
             dist/sha256.sum
+
+      - name: Update Homebrew tap
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA256_ARM=$(awk '{print $1}' dist/get-aarch64-apple-darwin.sha256)
+          SHA256_INTEL=$(awk '{print $1}' dist/get-x86_64-apple-darwin.sha256)
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/jclem/homebrew-tap.git" homebrew-tap
+          cd homebrew-tap
+
+          cat > Formula/get.rb <<RUBY
+          class Get < Formula
+            desc "A convenient HTTP CLI with expressive inline request syntax"
+            homepage "https://github.com/jclem/get"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-aarch64-apple-darwin.tar.xz"
+                sha256 "${SHA256_ARM}"
+              end
+              on_intel do
+                url "https://github.com/jclem/get/releases/download/v${VERSION}/get-x86_64-apple-darwin.tar.xz"
+                sha256 "${SHA256_INTEL}"
+              end
+            end
+
+            def install
+              bin.install "get"
+            end
+
+            test do
+              system bin/"get", "--version"
+            end
+          end
+          RUBY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/get.rb
+          git commit -m "Update get to ${VERSION}"
+          git push
