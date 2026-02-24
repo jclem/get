@@ -308,17 +308,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     let client = Client::builder().redirect(redirect_policy).build()?;
     let mut target = parse_target_url(url)?;
     let parsed_input = parse_input(&cli.inputs)?;
-    let host_for_session = if let Some(ref socket_path) = target.unix_socket {
-        sanitize_host_path_component(&socket_path.to_string_lossy())
-    } else {
-        target
-            .url
-            .host_str()
-            .map(str::to_string)
-            .ok_or_else(|| {
+    let host_for_session =
+        if let Some(ref socket_path) = target.unix_socket {
+            sanitize_host_path_component(&socket_path.to_string_lossy())
+        } else {
+            target.url.host_str().map(str::to_string).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host")
             })?
-    };
+        };
     let active_profile = active_profile(cli.profile.as_deref())?;
     let loaded_session_headers =
         load_session_headers(&host_for_session, cli.no_session, &active_profile)?;
@@ -1287,23 +1284,24 @@ fn send_unix_request(
         .enable_all()
         .build()?;
 
-    let (version, status, resp_headers, body_bytes) = rt.block_on(async move {
-        let stream = tokio::net::UnixStream::connect(&socket_path).await?;
-        let io = hyper_util::rt::TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                eprintln!("unix socket connection error: {e}");
-            }
-        });
-        let resp = sender.send_request(http_request).await?;
-        let version = resp.version();
-        let status = resp.status();
-        let headers = resp.headers().clone();
-        let body = resp.into_body().collect().await?.to_bytes().to_vec();
-        Ok::<_, Box<dyn Error + Send + Sync>>((version, status, headers, body))
-    })
-    .map_err(|e| -> Box<dyn Error> { e })?;
+    let (version, status, resp_headers, body_bytes) = rt
+        .block_on(async move {
+            let stream = tokio::net::UnixStream::connect(&socket_path).await?;
+            let io = hyper_util::rt::TokioIo::new(stream);
+            let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    eprintln!("unix socket connection error: {e}");
+                }
+            });
+            let resp = sender.send_request(http_request).await?;
+            let version = resp.version();
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let body = resp.into_body().collect().await?.to_bytes().to_vec();
+            Ok::<_, Box<dyn Error + Send + Sync>>((version, status, headers, body))
+        })
+        .map_err(|e| -> Box<dyn Error> { e })?;
 
     Ok(Response::Unix {
         version,

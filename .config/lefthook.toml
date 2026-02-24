@@ -1,0 +1,10 @@
+[[pre-commit.jobs]]
+run = "mise fix:format"
+glob = "*.rs"
+stage_fixed = true
+
+[[pre-commit.jobs]]
+run = "mise check"
+
+[[pre-commit.jobs]]
+run = "mise test"

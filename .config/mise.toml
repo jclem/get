@@ -1,0 +1,27 @@
+[tools]
+lefthook = "2.1.1"
+rust = "1.93.1"
+
+[tasks.check]
+depends = ["check:*"]
+
+[tasks."check:lint"]
+run = "cargo clippy --all-targets"
+
+[tasks."check:format"]
+run = "cargo fmt --all --check"
+
+[[tasks.fix.run]]
+task = "fix:format"
+
+[[tasks.fix.run]]
+task = "fix:lint"
+
+[tasks."fix:lint"]
+run = "cargo clippy --fix --all-targets --allow-dirty"
+
+[tasks."fix:format"]
+run = "cargo fmt --all"
+
+[tasks.test]
+run = "cargo test"
