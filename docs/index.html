@@ -85,7 +85,24 @@
       margin-bottom: 1.25rem;
     }
 
-    p + p, p + pre, pre + p { margin-top: 1rem; }
+    h3 {
+      font-size: 1.2rem;
+      font-weight: 500;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    h3:first-child { margin-top: 0; }
+
+    p + p, p + pre, pre + p, pre + h3, p + h3 { margin-top: 1rem; }
+
+    ul, ol {
+      margin-top: 0.75rem;
+      margin-bottom: 0.75rem;
+      padding-left: 1.5rem;
+    }
+
+    li + li { margin-top: 0.25rem; }
 
     /* ---- Code ---- */
     code {
@@ -118,6 +135,7 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 1.25rem;
+      padding-left: 0;
     }
 
     .features li {
@@ -162,6 +180,11 @@
       margin-bottom: 0.5rem;
     }
 
+    /* ---- Flags table ---- */
+    .flags-table td:first-child {
+      white-space: nowrap;
+    }
+
     /* ---- Footer ---- */
     footer {
       padding: 3rem 0;
@@ -191,11 +214,13 @@
     <p>A convenient HTTP CLI with expressive inline&nbsp;syntax.</p>
   </header>
 
+  <!-- ============ Install ============ -->
   <section>
     <h2>Install</h2>
     <pre><code>brew install jclem/tap/get</code></pre>
   </section>
 
+  <!-- ============ Quick start ============ -->
   <section>
     <h2>Quick start</h2>
     <pre><code><span class="comment"># Plain GET</span>
@@ -211,6 +236,23 @@ get https://httpbin.org/get q==rust page==1
 get https://httpbin.org/anything title=ship-it</code></pre>
   </section>
 
+  <!-- ============ Features at a glance ============ -->
+  <section>
+    <h2>Features</h2>
+    <ul class="features">
+      <li>Headers &amp; auth<span>Inline <code>Key:Value</code> syntax</span></li>
+      <li>Query params<span>Appended with <code>==</code></span></li>
+      <li>JSON body<span>String <code>=</code> and typed <code>:=</code></span></li>
+      <li>Nested paths<span>Dot notation &amp; bracket keys</span></li>
+      <li>Form encoding<span><code>--form</code> for url-encoded bodies</span></li>
+      <li>Verbose &amp; dry run<span>Inspect or preview requests</span></li>
+      <li>Sessions<span>Persist headers per host</span></li>
+      <li>Streaming<span>Stream response bodies</span></li>
+      <li>Unix sockets<span><code>unix:&lt;socket&gt;:&lt;path&gt;</code> scheme</span></li>
+    </ul>
+  </section>
+
+  <!-- ============ Inline syntax ============ -->
   <section>
     <h2>Inline syntax</h2>
     <p>Every argument after the URL is parsed as one of these forms:</p>
@@ -223,20 +265,366 @@ get https://httpbin.org/anything title=ship-it</code></pre>
         <tr><td><code>path:=json</code></td><td>Body JSON</td><td><code>count:=10</code></td></tr>
       </tbody>
     </table>
+    <p>When syntax is ambiguous, the parser uses this precedence: <code>:=</code> &rarr; <code>==</code> &rarr; <code>:</code> &rarr; <code>=</code>.</p>
   </section>
 
+  <!-- ============ Headers ============ -->
   <section>
-    <h2>Features</h2>
-    <ul class="features">
-      <li>Headers &amp; auth<span>Inline <code>Key:Value</code> syntax</span></li>
-      <li>Query params<span>Appended with <code>==</code></span></li>
-      <li>JSON body<span>String <code>=</code> and typed <code>:=</code></span></li>
-      <li>Nested paths<span>Dot notation &amp; bracket keys</span></li>
-      <li>Verbose mode<span>Inspect request &amp; response</span></li>
-      <li>Dry run<span>Preview without sending</span></li>
-      <li>Sessions<span>Persist headers per host</span></li>
-      <li>Streaming<span>Stream response bodies</span></li>
+    <h2>Headers</h2>
+    <p>Set headers with <code>Key:Value</code> syntax. Header names allow letters, numbers, <code>-</code>, and <code>_</code>. Values may contain additional <code>:</code> characters.</p>
+    <pre><code><span class="comment"># Single header</span>
+get https://httpbin.org/headers Accept:application/json
+
+<span class="comment"># Multiple headers</span>
+get https://httpbin.org/headers \
+  Authorization:Bearer_sk_live_123 \
+  X-Request-Id:req-abc-456
+
+<span class="comment"># Content negotiation</span>
+get https://httpbin.org/response-headers \
+  Accept:text/plain \
+  Accept-Language:en-US</code></pre>
+    <p>Repeating a header name appends to it rather than replacing it.</p>
+  </section>
+
+  <!-- ============ Query params ============ -->
+  <section>
+    <h2>Query params</h2>
+    <p>Append query parameters with <code>==</code>. Repeat a key to send multiple values.</p>
+    <pre><code><span class="comment"># Search with multiple params</span>
+get https://httpbin.org/get \
+  q==rust \
+  sort==stars \
+  page==1
+
+<span class="comment"># Repeated keys</span>
+get https://httpbin.org/get \
+  tag==cli \
+  tag==http \
+  tag==rust
+
+<span class="comment"># Empty value</span>
+get https://httpbin.org/get filter==</code></pre>
+  </section>
+
+  <!-- ============ JSON body ============ -->
+  <section>
+    <h2>JSON body</h2>
+    <p>Body fields are sent as JSON. When any body input is present and no <code>-X</code> flag is set, the method auto-switches to <code>POST</code>.</p>
+
+    <h3>String assignment (<code>=</code>)</h3>
+    <p>The <code>=</code> operator always stores a JSON string:</p>
+    <pre><code><span class="comment"># Simple fields</span>
+get https://httpbin.org/anything \
+  title=fix-login-redirect \
+  status=open
+
+<span class="comment"># Nested object via dot notation</span>
+get https://httpbin.org/anything \
+  user.name=alice \
+  user.role=admin</code></pre>
+
+    <h3>Typed assignment (<code>:=</code>)</h3>
+    <p>The <code>:=</code> operator parses the right side as raw JSON&mdash;numbers, booleans, arrays, and objects:</p>
+    <pre><code><span class="comment"># Numbers and booleans</span>
+get https://httpbin.org/anything \
+  count:=10 \
+  is_draft:=false
+
+<span class="comment"># Arrays and objects</span>
+get https://httpbin.org/anything \
+  'labels:=["bug","urgent"]' \
+  'owner:={"id":42,"name":"jules"}'</code></pre>
+  </section>
+
+  <!-- ============ Nested paths ============ -->
+  <section>
+    <h2>Nested paths</h2>
+    <p>Both <code>=</code> and <code>:=</code> support dot notation, bracket keys, and arrays:</p>
+    <pre><code><span class="comment"># Dot notation for nested objects</span>
+get https://httpbin.org/anything \
+  project.name=apollo \
+  project.version=2.0
+
+<span class="comment"># Bracket keys (useful for special characters)</span>
+get https://httpbin.org/anything \
+  'project[build.version]=v1'
+
+<span class="comment"># Array append with []</span>
+get https://httpbin.org/anything \
+  items[]=first \
+  items[]=second \
+  items[]=third
+
+<span class="comment"># Array by index</span>
+get https://httpbin.org/anything \
+  items[0]=alpha \
+  items[2]=gamma
+
+<span class="comment"># Root-level array</span>
+get https://httpbin.org/anything \
+  []=one \
+  []=two</code></pre>
+  </section>
+
+  <!-- ============ Combining everything ============ -->
+  <section>
+    <h2>Combining everything</h2>
+    <p>Headers, query params, and body fields can all be mixed in a single command:</p>
+    <pre><code>get -X POST https://httpbin.org/anything \
+  Authorization:Bearer_token \
+  X-Request-Id:req-123 \
+  expand==owner \
+  expand==labels \
+  title=write-readme \
+  priority:=2 \
+  'labels:=["docs","cli"]' \
+  owner[id]:=42</code></pre>
+  </section>
+
+  <!-- ============ Method selection ============ -->
+  <section>
+    <h2>Method selection</h2>
+    <p>The HTTP method is chosen automatically:</p>
+    <ul>
+      <li>Default is <code>GET</code>.</li>
+      <li>If any body input (<code>=</code> or <code>:=</code>) is present, method becomes <code>POST</code>.</li>
+      <li><code>-X</code> / <code>--method</code> always wins.</li>
     </ul>
+    <pre><code><span class="comment"># Auto POST (body present)</span>
+get https://httpbin.org/anything title=hello
+
+<span class="comment"># Force PUT</span>
+get -X PUT https://httpbin.org/anything title=updated
+
+<span class="comment"># Force DELETE</span>
+get -X DELETE https://httpbin.org/anything
+
+<span class="comment"># Force GET even with body</span>
+get -X GET https://httpbin.org/anything title=hello</code></pre>
+  </section>
+
+  <!-- ============ Verbose mode ============ -->
+  <section>
+    <h2>Verbose mode</h2>
+    <p>Use <code>-v</code> / <code>--verbose</code> to print the full request and response headers alongside the body:</p>
+    <pre><code><span class="comment"># See request + response headers</span>
+get -v https://httpbin.org/get
+
+<span class="comment"># Verbose POST with body</span>
+get -v https://httpbin.org/anything \
+  title=hello \
+  count:=5
+
+<span class="comment"># Verbose with custom headers</span>
+get -v https://httpbin.org/headers \
+  Authorization:Bearer_token \
+  Accept:application/json</code></pre>
+  </section>
+
+  <!-- ============ Dry run ============ -->
+  <section>
+    <h2>Dry run</h2>
+    <p>Use <code>--dry-run</code> to preview exactly what would be sent without making a network call. Useful for building complex requests:</p>
+    <pre><code><span class="comment"># Preview a POST request</span>
+get --dry-run https://httpbin.org/post \
+  Authorization:Bearer_token \
+  title=fix-parser \
+  priority:=1
+
+<span class="comment"># Verify query string construction</span>
+get --dry-run https://httpbin.org/get \
+  q==hello+world \
+  lang==en \
+  page==1</code></pre>
+  </section>
+
+  <!-- ============ Form data ============ -->
+  <section>
+    <h2>Form data</h2>
+    <p>Use <code>--form</code> to send the body as <code>application/x-www-form-urlencoded</code> instead of JSON:</p>
+    <pre><code><span class="comment"># URL-encoded form submission</span>
+get --form https://httpbin.org/post \
+  username=alice \
+  password=secret
+
+<span class="comment"># Form with typed values</span>
+get --form https://httpbin.org/post \
+  title=hello \
+  count:=3</code></pre>
+  </section>
+
+  <!-- ============ Streaming ============ -->
+  <section>
+    <h2>Streaming</h2>
+    <p>Use <code>-s</code> / <code>--stream</code> to print response data as it arrives, rather than waiting for the full response:</p>
+    <pre><code><span class="comment"># Stream 20 lines from httpbin</span>
+get --stream https://httpbin.org/stream/20
+
+<span class="comment"># Stream with verbose headers</span>
+get -v --stream https://httpbin.org/stream/5</code></pre>
+  </section>
+
+  <!-- ============ Sessions ============ -->
+  <section>
+    <h2>Sessions &amp; profiles</h2>
+    <p><code>get</code> can persist selected response headers (like auth tokens) per host, and organize them into named profiles.</p>
+
+    <h3>Session management</h3>
+    <pre><code><span class="comment"># List all saved sessions</span>
+get session list
+
+<span class="comment"># Show headers stored for a host</span>
+get session show api.example.com
+
+<span class="comment"># Clear stored headers for a host</span>
+get session clear api.example.com
+
+<span class="comment"># Delete a session file entirely</span>
+get session delete api.example.com
+
+<span class="comment"># Edit a session file in $EDITOR</span>
+get session edit api.example.com</code></pre>
+
+    <h3>Profiles</h3>
+    <p>Profiles let you maintain separate sets of sessions&mdash;for example, <em>work</em> and <em>personal</em>:</p>
+    <pre><code><span class="comment"># Switch to a named profile</span>
+get session switch work
+
+<span class="comment"># List all profiles</span>
+get profile list
+
+<span class="comment"># Show all profiles and their sessions</span>
+get profile tree
+
+<span class="comment"># Remove a profile</span>
+get profile remove old-project</code></pre>
+
+    <h3>Configuration</h3>
+    <p>Control which headers are persisted via the config file:</p>
+    <pre><code><span class="comment"># Open config in $EDITOR</span>
+get config edit</code></pre>
+    <p>Example config:</p>
+    <pre><code><span class="comment"># Global: persist these headers for all hosts</span>
+session-headers = ["Authorization", "x-api-key"]
+
+<span class="comment"># Per-host override (replaces global list)</span>
+[sessions."api.example.com"]
+session-headers = ["x-session-token"]</code></pre>
+    <p>Use <code>-S</code> / <code>--no-session</code> to skip session persistence for a single request, or <code>-p</code> / <code>--profile</code> to use a specific profile:</p>
+    <pre><code><span class="comment"># One-off request without session persistence</span>
+get -S https://httpbin.org/get
+
+<span class="comment"># Use a specific profile</span>
+get -p work https://httpbin.org/get</code></pre>
+  </section>
+
+  <!-- ============ Unix sockets ============ -->
+  <section>
+    <h2>Unix sockets</h2>
+    <p>Send requests over Unix domain sockets using two URL formats:</p>
+    <ul>
+      <li><code>unix:&lt;socket&gt;:&lt;path&gt;</code> &mdash; explicit prefix</li>
+      <li><code>/&lt;socket&gt;:&lt;path&gt;</code> &mdash; shorthand (any URL starting with <code>/</code>)</li>
+    </ul>
+    <p>If <code>&lt;path&gt;</code> is omitted, it defaults to <code>/</code>.</p>
+    <pre><code><span class="comment"># GET / on a Unix socket</span>
+get unix:/tmp/app.sock
+
+<span class="comment"># GET /health</span>
+get unix:/tmp/app.sock:/health
+
+<span class="comment"># Shorthand form</span>
+get /tmp/app.sock:/health
+
+<span class="comment"># POST with body over a socket</span>
+get /tmp/app.sock:/api/items title=hello
+
+<span class="comment"># Verbose request over a socket</span>
+get -v /tmp/app.sock:/status</code></pre>
+  </section>
+
+  <!-- ============ Output control ============ -->
+  <section>
+    <h2>Output control</h2>
+    <p>Several flags control what gets printed:</p>
+    <pre><code><span class="comment"># Suppress the response body (headers only with -v)</span>
+get -v -B https://httpbin.org/get
+
+<span class="comment"># Disable JSON formatting and syntax highlighting</span>
+get -H https://httpbin.org/json
+
+<span class="comment"># Combine: verbose, no body</span>
+get -v -B https://httpbin.org/anything title=test</code></pre>
+    <p>Response formatting and syntax highlighting are enabled only when stdout is a TTY. Piping output to another command disables them automatically.</p>
+  </section>
+
+  <!-- ============ Redirects ============ -->
+  <section>
+    <h2>Redirects</h2>
+    <p>By default, <code>get</code> follows up to 16 redirects. Use <code>--max-redirects</code> to change the limit, or set it to 0 to disable following redirects entirely:</p>
+    <pre><code><span class="comment"># Follow redirects (default behavior)</span>
+get https://httpbin.org/redirect/3
+
+<span class="comment"># Limit to 1 redirect</span>
+get --max-redirects 1 https://httpbin.org/redirect/3
+
+<span class="comment"># Disable redirects</span>
+get --max-redirects 0 https://httpbin.org/redirect/1
+
+<span class="comment"># Debug redirect chain</span>
+get --debug https://httpbin.org/redirect/3</code></pre>
+  </section>
+
+  <!-- ============ Debugging ============ -->
+  <section>
+    <h2>Debugging</h2>
+    <p>Use <code>--debug</code> for detailed request and redirect debugging information:</p>
+    <pre><code><span class="comment"># Debug a simple request</span>
+get --debug https://httpbin.org/get
+
+<span class="comment"># Debug a redirect chain</span>
+get --debug https://httpbin.org/redirect/2
+
+<span class="comment"># Debug a POST with body</span>
+get --debug https://httpbin.org/anything \
+  title=hello \
+  count:=5</code></pre>
+  </section>
+
+  <!-- ============ Shell completions ============ -->
+  <section>
+    <h2>Shell completions</h2>
+    <p>Generate completion scripts for your shell:</p>
+    <pre><code><span class="comment"># Bash</span>
+get completions bash
+
+<span class="comment"># Zsh</span>
+get completions zsh
+
+<span class="comment"># Fish</span>
+get completions fish</code></pre>
+  </section>
+
+  <!-- ============ Flags reference ============ -->
+  <section>
+    <h2>Flags reference</h2>
+    <table class="flags-table">
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>-v, --verbose</code></td><td>Show request and response headers</td></tr>
+        <tr><td><code>--debug</code></td><td>Print detailed request and redirect info</td></tr>
+        <tr><td><code>--dry-run</code></td><td>Show the request without sending it</td></tr>
+        <tr><td><code>-X, --method</code></td><td>Set the HTTP method</td></tr>
+        <tr><td><code>--form</code></td><td>Send body as form-encoded instead of JSON</td></tr>
+        <tr><td><code>-s, --stream</code></td><td>Stream the response body as it arrives</td></tr>
+        <tr><td><code>-B, --no-body</code></td><td>Do not print the response body</td></tr>
+        <tr><td><code>-H, --no-highlight</code></td><td>Disable formatting and syntax highlighting</td></tr>
+        <tr><td><code>-S, --no-session</code></td><td>Skip session persistence for this request</td></tr>
+        <tr><td><code>-p, --profile</code></td><td>Use a named session profile</td></tr>
+        <tr><td><code>--max-redirects</code></td><td>Max redirects to follow (default: 16, 0 to disable)</td></tr>
+      </tbody>
+    </table>
   </section>
 
   <footer>

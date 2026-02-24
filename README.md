@@ -195,6 +195,29 @@ get https://httpbin.org/anything title=hello
 get -X GET https://httpbin.org/anything title=hello
 ```
 
+## Unix Sockets
+
+`get` can send requests over Unix domain sockets using two URL formats:
+
+- `unix:<socket>:<path>` — explicit prefix
+- `/<socket>:<path>` — shorthand (any URL starting with `/`)
+
+If `<path>` is omitted, it defaults to `/`.
+
+```bash
+# GET / on a Unix socket
+get unix:/tmp/app.sock
+
+# GET /health on a Unix socket
+get unix:/tmp/app.sock:/health
+
+# Shorthand form
+get /tmp/app.sock:/health
+
+# POST with body
+get /tmp/app.sock:/api/items title=hello
+```
+
 ## Useful Flags
 
 ```bash

@@ -12,6 +12,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["rt", "net"] }
+bytes = "1"
 winnow = "0.7"
 html5ever = "0.35"
 markup5ever_rcdom = "0.35"
+
+[dev-dependencies]
+tempfile = "3"

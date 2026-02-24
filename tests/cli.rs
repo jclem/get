@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
+#[cfg(unix)]
+use std::os::unix::net::UnixListener;
 use std::process::Command;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -475,6 +477,161 @@ fn query_inputs_append_query_params_and_repeat_keys() {
 
     let request = request_handle.join().expect("server thread panicked");
     assert!(request.starts_with("GET /query?q=one&q=two HTTP/1.1\r\n"));
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_socket_get_prints_response_body() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sock_path = dir.path().join("test.sock");
+    let listener = UnixListener::bind(&sock_path).expect("bind unix socket");
+
+    let response = build_response("200 OK", &[("content-type", "text/plain")], "hello unix");
+
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept unix client");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("set read timeout");
+        let request = read_unix_request(&mut stream);
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
+        stream.flush().expect("flush response");
+        request
+    });
+
+    let url = format!("unix:{}:/simple", sock_path.display());
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .arg(&url)
+        .output()
+        .expect("failed to run get with unix socket");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello unix");
+
+    let request = handle.join().expect("server thread panicked");
+    assert!(
+        request.starts_with("GET /simple HTTP/1.1\r\n"),
+        "unexpected request: {request}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_socket_slash_prefix_works() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sock_path = dir.path().join("slash.sock");
+    let listener = UnixListener::bind(&sock_path).expect("bind unix socket");
+
+    let response = build_response("200 OK", &[("content-type", "text/plain")], "slash prefix");
+
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept unix client");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("set read timeout");
+        let request = read_unix_request(&mut stream);
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
+        stream.flush().expect("flush response");
+        request
+    });
+
+    let url = format!("{}:/path", sock_path.display());
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .arg(&url)
+        .output()
+        .expect("failed to run get with slash-prefix unix socket");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "slash prefix");
+
+    let request = handle.join().expect("server thread panicked");
+    assert!(
+        request.starts_with("GET /path HTTP/1.1\r\n"),
+        "unexpected request: {request}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn unix_socket_defaults_path_to_root() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let sock_path = dir.path().join("root.sock");
+    let listener = UnixListener::bind(&sock_path).expect("bind unix socket");
+
+    let response = build_response("200 OK", &[("content-type", "text/plain")], "root path");
+
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept unix client");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .expect("set read timeout");
+        let request = read_unix_request(&mut stream);
+        stream
+            .write_all(response.as_bytes())
+            .expect("write response");
+        stream.flush().expect("flush response");
+        request
+    });
+
+    let url = format!("unix:{}:", sock_path.display());
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .arg(&url)
+        .output()
+        .expect("failed to run get with unix socket default path");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "root path");
+
+    let request = handle.join().expect("server thread panicked");
+    assert!(
+        request.starts_with("GET / HTTP/1.1\r\n"),
+        "unexpected request: {request}"
+    );
+}
+
+#[cfg(unix)]
+fn read_unix_request(stream: &mut std::os::unix::net::UnixStream) -> String {
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    let mut content_length = None;
+    let mut header_end = None;
+
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => {
+                bytes.extend_from_slice(&buffer[..n]);
+                if header_end.is_none() {
+                    if let Some(end) = find_header_end(&bytes) {
+                        header_end = Some(end);
+                        content_length = parse_content_length(&bytes[..end]);
+                        if content_length == Some(0) {
+                            break;
+                        }
+                    }
+                }
+
+                if let (Some(end), Some(length)) = (header_end, content_length) {
+                    if bytes.len() >= end + length {
+                        break;
+                    }
+                }
+            }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                break;
+            }
+            Err(error) => panic!("failed reading unix request: {error}"),
+        }
+    }
+
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn spawn_server(

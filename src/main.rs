@@ -1,10 +1,12 @@
 mod input_parser;
 
+use bytes::Bytes;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
 use clap_complete::{CompleteEnv, Shell};
 use html5ever::parse_document;
 use html5ever::tendril::TendrilSink;
+use http_body_util::{BodyExt, Full};
 use input_parser::{parse_input, ParsedHeader};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use reqwest::blocking::Client;
@@ -78,7 +80,7 @@ struct Cli {
     #[arg(short = 'X', long)]
     method: Option<String>,
 
-    /// The full URL to request.
+    /// The full URL to request. Use unix:<socket>:<path> or /<socket>:<path> for Unix sockets.
     url: Option<String>,
 
     /// Additional request inputs (Header:Value, name==value, path=value, path:=json).
@@ -198,6 +200,53 @@ enum SessionCommands {
     },
 }
 
+struct TargetUrl {
+    url: Url,
+    unix_socket: Option<PathBuf>,
+}
+
+enum Response {
+    Reqwest(reqwest::blocking::Response),
+    Unix {
+        version: reqwest::Version,
+        status: reqwest::StatusCode,
+        headers: reqwest::header::HeaderMap,
+        body: io::Cursor<Vec<u8>>,
+    },
+}
+
+impl Response {
+    fn status(&self) -> reqwest::StatusCode {
+        match self {
+            Response::Reqwest(r) => r.status(),
+            Response::Unix { status, .. } => *status,
+        }
+    }
+
+    fn version(&self) -> reqwest::Version {
+        match self {
+            Response::Reqwest(r) => r.version(),
+            Response::Unix { version, .. } => *version,
+        }
+    }
+
+    fn headers(&self) -> &reqwest::header::HeaderMap {
+        match self {
+            Response::Reqwest(r) => r.headers(),
+            Response::Unix { headers, .. } => headers,
+        }
+    }
+}
+
+impl Read for Response {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Response::Reqwest(r) => r.read(buf),
+            Response::Unix { body, .. } => body.read(buf),
+        }
+    }
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("get: {error}");
@@ -257,12 +306,19 @@ fn run() -> Result<(), Box<dyn Error>> {
     };
 
     let client = Client::builder().redirect(redirect_policy).build()?;
-    let mut url = parse_target_url(url)?;
+    let mut target = parse_target_url(url)?;
     let parsed_input = parse_input(&cli.inputs)?;
-    let host_for_session = url
-        .host_str()
-        .map(str::to_string)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host"))?;
+    let host_for_session = if let Some(ref socket_path) = target.unix_socket {
+        sanitize_host_path_component(&socket_path.to_string_lossy())
+    } else {
+        target
+            .url
+            .host_str()
+            .map(str::to_string)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "URL is missing a host")
+            })?
+    };
     let active_profile = active_profile(cli.profile.as_deref())?;
     let loaded_session_headers =
         load_session_headers(&host_for_session, cli.no_session, &active_profile)?;
@@ -278,13 +334,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     let cli_header_names = collect_header_names(&parsed_input.headers);
 
     if !parsed_input.query_params.is_empty() {
-        let mut query_pairs = url.query_pairs_mut();
+        let mut query_pairs = target.url.query_pairs_mut();
         for query in &parsed_input.query_params {
             query_pairs.append_pair(&query.name, &query.value);
         }
     }
 
-    let host = host_header_value(&url)?;
+    let host = host_header_value(&target.url)?;
 
     let method_name = cli.method.as_deref().unwrap_or_else(|| {
         if parsed_input.body.is_some() {
@@ -295,7 +351,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     });
     let method = reqwest::Method::from_bytes(method_name.as_bytes())?;
     let mut request_builder = client
-        .request(method, url.clone())
+        .request(method, target.url.clone())
         .header(ACCEPT, "*/*")
         .header(USER_AGENT, format!("get/{}", env!("CARGO_PKG_VERSION")));
 
@@ -365,7 +421,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let mut response = client.execute(request)?;
+    let mut response = if let Some(ref socket_path) = target.unix_socket {
+        send_unix_request(socket_path, request)?
+    } else {
+        Response::Reqwest(client.execute(request)?)
+    };
     persist_session_headers(
         &host_for_session,
         &session_updates,
@@ -1197,9 +1257,86 @@ fn shell_name(shell: Shell) -> Result<&'static str, io::Error> {
     }
 }
 
-fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
+fn send_unix_request(
+    socket_path: &Path,
+    request: reqwest::blocking::Request,
+) -> Result<Response, Box<dyn Error>> {
+    let method = request.method().clone();
+    let path_and_query = request
+        .url()
+        .query()
+        .map(|q| format!("{}?{q}", request.url().path()))
+        .unwrap_or_else(|| request.url().path().to_string());
+    let headers = request.headers().clone();
+    let body_bytes = request
+        .body()
+        .and_then(|b| b.as_bytes())
+        .unwrap_or(&[])
+        .to_vec();
+
+    let mut http_request = hyper::Request::builder()
+        .method(method.as_str())
+        .uri(&path_and_query);
+    for (name, value) in &headers {
+        http_request = http_request.header(name.as_str(), value.as_bytes());
+    }
+    let http_request = http_request.body(Full::new(Bytes::from(body_bytes)))?;
+
+    let socket_path = socket_path.to_path_buf();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    let (version, status, resp_headers, body_bytes) = rt.block_on(async move {
+        let stream = tokio::net::UnixStream::connect(&socket_path).await?;
+        let io = hyper_util::rt::TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                eprintln!("unix socket connection error: {e}");
+            }
+        });
+        let resp = sender.send_request(http_request).await?;
+        let version = resp.version();
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        let body = resp.into_body().collect().await?.to_bytes().to_vec();
+        Ok::<_, Box<dyn Error + Send + Sync>>((version, status, headers, body))
+    })
+    .map_err(|e| -> Box<dyn Error> { e })?;
+
+    Ok(Response::Unix {
+        version,
+        status,
+        headers: resp_headers,
+        body: io::Cursor::new(body_bytes),
+    })
+}
+
+fn parse_target_url(raw: &str) -> Result<TargetUrl, Box<dyn Error>> {
+    if raw.starts_with("unix:") || raw.starts_with('/') {
+        let remainder = raw.strip_prefix("unix:").unwrap_or(raw);
+        let (socket_path, http_path) = match remainder.rfind(':') {
+            Some(pos) if pos > 0 => {
+                let path = &remainder[pos + 1..];
+                let path = if path.is_empty() { "/" } else { path };
+                (&remainder[..pos], path)
+            }
+            _ => (remainder, "/"),
+        };
+
+        let url = Url::parse(&format!("http://localhost{http_path}"))?;
+        return Ok(TargetUrl {
+            url,
+            unix_socket: Some(PathBuf::from(socket_path)),
+        });
+    }
+
     if raw.contains("://") {
-        return Url::parse(raw).map_err(|error| error.into());
+        return Ok(TargetUrl {
+            url: Url::parse(raw)?,
+            unix_socket: None,
+        });
     }
 
     let host = host_for_default_scheme(raw)?;
@@ -1209,7 +1346,10 @@ fn parse_target_url(raw: &str) -> Result<Url, Box<dyn Error>> {
         "https"
     };
 
-    Url::parse(&format!("{scheme}://{raw}")).map_err(|error| error.into())
+    Ok(TargetUrl {
+        url: Url::parse(&format!("{scheme}://{raw}"))?,
+        unix_socket: None,
+    })
 }
 
 fn parse_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Box<dyn Error>> {
