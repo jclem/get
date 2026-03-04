@@ -11,22 +11,45 @@
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --fg: #1d1d1f;
-      --fg-secondary: #6e6e73;
-      --bg: #fbfbfd;
-      --code-bg: #f5f5f7;
-      --border: #d2d2d7;
-      --accent: #0071e3;
+      --bg0: #FFFCF5;
+      --bg1: #F4F1EA;
+      --bg2: #E8E5DD;
+      --bg3: #DDDAD2;
+      --fg0: #2B2924;
+      --fg1: #4D4A43;
+      --fg2: #6E6A5F;
+      --fg3: #9C9889;
+      --ui-accent: #8B7355;
+      --ui-highlight: #EDE4D0;
+      --ui-diff-add: #D5E0C8;
+      --ui-diff-del: #E8D0C8;
+      --ui-error: #A04040;
+      --ui-warn: #8B7040;
+
+      --fg: var(--fg0);
+      --fg-secondary: var(--fg2);
+      --bg: var(--bg0);
+      --code-bg: var(--bg1);
+      --border: var(--bg3);
+      --accent: var(--ui-accent);
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --fg: #f5f5f7;
-        --fg-secondary: #a1a1a6;
-        --bg: #1d1d1f;
-        --code-bg: #2d2d2f;
-        --border: #424245;
-        --accent: #2997ff;
+        --bg0: #1C1B18;
+        --bg1: #252420;
+        --bg2: #302E29;
+        --bg3: #3D3A34;
+        --fg0: #D5D2C8;
+        --fg1: #B0AD9F;
+        --fg2: #8A8778;
+        --fg3: #5E5B50;
+        --ui-accent: #C4A882;
+        --ui-highlight: #3A3428;
+        --ui-diff-add: #2A3325;
+        --ui-diff-del: #362525;
+        --ui-error: #C86060;
+        --ui-warn: #C4A050;
       }
     }
 
@@ -58,39 +81,83 @@
       position: fixed;
       top: 2rem;
       left: 1rem;
-      width: 2.25rem;
+      width: 2.2rem;
       max-height: calc(100vh - 4rem);
+      overflow-x: hidden;
       overflow-y: auto;
       z-index: 20;
       display: flex;
       flex-direction: column;
-      gap: 0.45rem;
-      padding: 0.35rem;
-      border-radius: 999px;
+      gap: 0.18rem;
+      padding: 0.35rem 0.3rem;
+      border-radius: 1rem;
       background: color-mix(in srgb, var(--bg) 80%, transparent);
-      border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-      transition: width 240ms ease, border-radius 240ms ease, background 240ms ease;
+      border: none;
+      transition: width 140ms ease, background 140ms ease;
       scrollbar-width: thin;
     }
 
-    .toc:hover,
+    .toc-pin {
+      display: grid;
+      place-items: center;
+      width: 1.55rem;
+      height: 1.55rem;
+      margin: 0;
+      align-self: flex-start;
+      border-radius: 999px;
+      border: 0;
+      padding: 0;
+      appearance: none;
+      -webkit-appearance: none;
+      font-family: inherit;
+      font-size: 0.95rem;
+      line-height: 1;
+      color: var(--fg);
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      transition: background-color 120ms ease, transform 120ms ease;
+      flex: 0 0 auto;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .toc-pin:hover {
+      background: color-mix(in srgb, var(--accent) 24%, transparent);
+    }
+
     .toc:focus-within,
-    .toc.is-expanded {
+    .toc.is-expanded,
+    .toc.is-pinned {
       width: min(14rem, calc(100vw - 2rem));
-      border-radius: 1rem;
       background: color-mix(in srgb, var(--bg) 94%, transparent);
+    }
+
+    .toc:focus-within .toc-pin,
+    .toc.is-expanded .toc-pin,
+    .toc.is-pinned .toc-pin {
+      transform: rotate(8deg);
+      background: color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+
+    .toc.is-pinned .toc-pin {
+      background: var(--accent);
+      color: var(--bg);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 72%, var(--bg) 28%);
     }
 
     .toc-link {
       display: flex;
       align-items: center;
-      gap: 0.65rem;
+      gap: 0.4rem;
       color: inherit;
       text-decoration: none;
-      min-height: 1.5rem;
-      border-radius: 999px;
-      padding: 0.1rem 0.2rem;
-      transition: background-color 180ms ease;
+      min-height: 0;
+      max-height: 0;
+      opacity: 0;
+      border-radius: 0.65rem;
+      padding: 0 0.5rem;
+      transform: translateX(-0.25rem);
+      pointer-events: none;
+      transition: opacity 120ms ease, max-height 120ms ease, transform 120ms ease, padding 120ms ease;
     }
 
     .toc-link:hover {
@@ -98,13 +165,14 @@
       background: color-mix(in srgb, var(--accent) 14%, transparent);
     }
 
-    .toc-bar {
-      height: 0.34rem;
-      border-radius: 999px;
-      background: var(--fg-secondary);
-      opacity: 0.2;
-      flex: 0 0 1.15rem;
-      transition: opacity 220ms ease, background-color 220ms ease;
+    .toc:focus-within .toc-link,
+    .toc.is-expanded .toc-link,
+    .toc.is-pinned .toc-link {
+      max-height: 1.8rem;
+      opacity: 1;
+      padding: 0.1rem 0.5rem;
+      transform: translateX(0);
+      pointer-events: auto;
     }
 
     .toc-label {
@@ -113,26 +181,8 @@
       text-overflow: ellipsis;
       font-size: 0.82rem;
       letter-spacing: 0.01em;
-      opacity: 0;
-      transform: translateX(-0.2rem);
-      transition: opacity 220ms ease, transform 220ms ease;
       color: var(--fg-secondary);
-      pointer-events: none;
-    }
-
-    .toc:hover .toc-label,
-    .toc:focus-within .toc-label,
-    .toc.is-expanded .toc-label {
-      opacity: 1;
-      transform: translateX(0);
-      pointer-events: auto;
-    }
-
-    .toc-link:hover .toc-bar,
-    .toc-link:focus-visible .toc-bar,
-    .toc-link.is-active .toc-bar {
-      opacity: 0.95;
-      background: var(--accent);
+      transition: color 120ms ease;
     }
 
     .toc-link.is-active .toc-label {
@@ -325,13 +375,19 @@
         transform: translateY(-0.6rem);
         opacity: 0;
         pointer-events: none;
-        transition: opacity 220ms ease, transform 220ms ease;
+        transition: opacity 130ms ease, transform 130ms ease;
+        transition-delay: 0ms;
       }
 
-      .toc .toc-label {
-        opacity: 1;
-        transform: none;
-        pointer-events: auto;
+      .toc:hover,
+      .toc:focus-within,
+      .toc.is-expanded {
+        width: calc(100vw - 2rem);
+        border-radius: 1rem;
+      }
+
+      .toc-pin {
+        display: none;
       }
 
       .toc.is-expanded {
@@ -342,6 +398,11 @@
 
       .toc-link {
         border-radius: 0.75rem;
+        max-height: 1.8rem;
+        opacity: 1;
+        padding: 0.1rem 0.5rem;
+        transform: none;
+        pointer-events: auto;
       }
 
       header { padding: 4rem 0 3rem; }
@@ -354,7 +415,9 @@
 
 <div class="layout">
   <button class="toc-toggle" id="toc-toggle" type="button" aria-controls="toc" aria-expanded="false">☰ Sections</button>
-  <nav class="toc" id="toc" aria-label="Table of contents"></nav>
+  <nav class="toc" id="toc" aria-label="Table of contents">
+    <button class="toc-pin" id="toc-pin" type="button" aria-label="Pin sections" aria-pressed="false">§</button>
+  </nav>
 
 <div class="container">
 
@@ -372,7 +435,13 @@
   <!-- ============ Quick start ============ -->
   <section>
     <h2>Quick start</h2>
-    <pre><code><span class="comment"># Plain GET</span>
+    <pre><code><span class="comment"># Install</span>
+brew install jclem/tap/get
+
+<span class="comment"># Or run directly in this repo</span>
+cargo run -- https://httpbin.org/get
+
+<span class="comment"># Plain GET</span>
 get https://httpbin.org/get
 
 <span class="comment"># Add headers</span>
@@ -785,8 +854,18 @@ get completions fish</code></pre>
 <script>
   const sections = Array.from(document.querySelectorAll('section'));
   const toc = document.getElementById('toc');
+  const tocPin = document.getElementById('toc-pin');
   const tocToggle = document.getElementById('toc-toggle');
   const prefersTouch = window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  const mobileLayout = window.matchMedia('(max-width: 520px)');
+  let desktopCloseTimer = null;
+
+  const updatePinButtonState = () => {
+    const pinned = toc.classList.contains('is-pinned');
+    tocPin.setAttribute('aria-pressed', String(pinned));
+    tocPin.setAttribute('aria-label', pinned ? 'Unpin sections' : 'Pin sections');
+    tocPin.title = pinned ? 'Unpin sections' : 'Pin sections';
+  };
 
   sections.forEach((section, index) => {
     const heading = section.querySelector('h2');
@@ -800,36 +879,119 @@ get completions fish</code></pre>
     link.className = 'toc-link';
     link.setAttribute('aria-label', heading.textContent.trim());
 
-    const bar = document.createElement('span');
-    bar.className = 'toc-bar';
-
     const label = document.createElement('span');
     label.className = 'toc-label';
     label.textContent = heading.textContent.trim();
 
-    link.append(bar, label);
+    link.append(label);
     toc.append(link);
   });
 
   const tocLinks = Array.from(toc.querySelectorAll('.toc-link'));
+  const applyTocLayoutState = () => {
+    if (mobileLayout.matches) {
+      tocToggle.hidden = false;
+      tocPin.hidden = true;
+      toc.classList.remove('is-pinned');
+      updatePinButtonState();
+      const expanded = tocToggle.getAttribute('aria-expanded') === 'true';
+      toc.classList.toggle('is-expanded', expanded);
+      return;
+    }
 
-  if (prefersTouch) {
+    tocToggle.hidden = true;
+    tocPin.hidden = prefersTouch;
+    tocToggle.setAttribute('aria-expanded', 'false');
+    toc.classList.toggle('is-expanded', prefersTouch || toc.classList.contains('is-pinned'));
+    updatePinButtonState();
+  };
+
+  const clearDesktopCloseTimer = () => {
+    if (desktopCloseTimer === null) return;
+    clearTimeout(desktopCloseTimer);
+    desktopCloseTimer = null;
+  };
+
+  const openDesktopToc = () => {
+    if (mobileLayout.matches || prefersTouch) return;
+    clearDesktopCloseTimer();
     toc.classList.add('is-expanded');
-    tocToggle.hidden = false;
-    tocToggle.addEventListener('click', () => {
-      const expanded = toc.classList.toggle('is-expanded');
-      tocToggle.setAttribute('aria-expanded', String(expanded));
-    });
+  };
 
-    tocLinks.forEach((link) => {
-      link.addEventListener('click', () => {
+  const closeDesktopToc = () => {
+    if (mobileLayout.matches || prefersTouch) return;
+    if (toc.classList.contains('is-pinned')) return;
+    clearDesktopCloseTimer();
+    desktopCloseTimer = setTimeout(() => {
+      if (
+        toc.classList.contains('is-pinned') ||
+        toc.matches(':hover') ||
+        toc.matches(':focus-within')
+      ) {
+        desktopCloseTimer = null;
+        return;
+      }
+      toc.classList.remove('is-expanded');
+      desktopCloseTimer = null;
+    }, 160);
+  };
+
+  tocToggle.addEventListener('click', () => {
+    const nextExpanded = tocToggle.getAttribute('aria-expanded') !== 'true';
+    tocToggle.setAttribute('aria-expanded', String(nextExpanded));
+    toc.classList.toggle('is-expanded', nextExpanded);
+  });
+
+  tocPin.addEventListener('click', (event) => {
+    if (mobileLayout.matches || prefersTouch) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const nextPinned = !toc.classList.contains('is-pinned');
+    toc.classList.toggle('is-pinned', nextPinned);
+    updatePinButtonState();
+    clearDesktopCloseTimer();
+
+    if (nextPinned) {
+      toc.classList.add('is-expanded');
+      return;
+    }
+
+    tocPin.blur();
+    toc.classList.remove('is-expanded');
+    clearDesktopCloseTimer();
+  });
+
+  toc.addEventListener('mouseenter', openDesktopToc);
+  toc.addEventListener('mouseleave', closeDesktopToc);
+  toc.addEventListener('focusin', openDesktopToc);
+  toc.addEventListener('focusout', (event) => {
+    if (toc.contains(event.relatedTarget)) return;
+    closeDesktopToc();
+  });
+
+  tocLinks.forEach((link) => {
+    link.addEventListener('click', () => {
+      if (mobileLayout.matches) {
         toc.classList.remove('is-expanded');
         tocToggle.setAttribute('aria-expanded', 'false');
-      });
+        return;
+      }
+
+      clearDesktopCloseTimer();
+      if (toc.matches(':hover') || toc.matches(':focus-within')) {
+        toc.classList.add('is-expanded');
+      }
     });
+  });
+
+  if (typeof mobileLayout.addEventListener === 'function') {
+    mobileLayout.addEventListener('change', applyTocLayoutState);
   } else {
-    tocToggle.hidden = true;
+    mobileLayout.addListener(applyTocLayoutState);
   }
+
+  applyTocLayoutState();
 
   const observer = new IntersectionObserver((entries) => {
     entries.forEach((entry) => {
