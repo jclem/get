@@ -1337,7 +1337,8 @@ fn parse_target_url(raw: &str) -> Result<TargetUrl, Box<dyn Error>> {
         });
     }
 
-    let host = host_for_default_scheme(raw)?;
+    let raw = localhost_port_shorthand(raw);
+    let host = host_for_default_scheme(&raw)?;
     let scheme = if is_local_host(host.as_deref()) {
         "http"
     } else {
@@ -1348,6 +1349,14 @@ fn parse_target_url(raw: &str) -> Result<TargetUrl, Box<dyn Error>> {
         url: Url::parse(&format!("{scheme}://{raw}"))?,
         unix_socket: None,
     })
+}
+
+fn localhost_port_shorthand(raw: &str) -> String {
+    if raw.starts_with(':') {
+        format!("localhost{raw}")
+    } else {
+        raw.to_string()
+    }
 }
 
 fn parse_header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Box<dyn Error>> {
@@ -1822,7 +1831,7 @@ mod tests {
     use super::{
         body_to_form_fields, changed_session_headers, collect_header_names,
         collect_session_headers, complete_session_name, format_body_text,
-        load_session_header_names_from_path, load_session_headers_from_path,
+        load_session_header_names_from_path, load_session_headers_from_path, parse_target_url,
         persist_session_headers, persist_session_headers_to_path, read_profile_names_in_dir,
         read_session_names_in_dir, sanitize_host_path_component, syntax_token_for_content_type,
         Cli, Commands, ConfigCommands, ParsedHeader, ProfileCommands, SessionCommands,
@@ -2412,6 +2421,13 @@ session-headers = ["X-Session-Token"]
             sanitize_host_path_component("api.github.com:443"),
             "api.github.com_443"
         );
+    }
+
+    #[test]
+    fn parse_target_url_treats_port_shorthand_as_localhost() {
+        let target = parse_target_url(":4000").expect("parse target url");
+        assert_eq!(target.url.as_str(), "http://localhost:4000/");
+        assert!(target.unix_socket.is_none());
     }
 
     #[test]

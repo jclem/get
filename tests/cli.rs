@@ -239,6 +239,21 @@ fn dry_run_does_not_send_request() {
 }
 
 #[test]
+fn dry_run_accepts_port_only_as_localhost() {
+    let output = Command::new(env!("CARGO_BIN_EXE_get"))
+        .args(["--dry-run", ":4000"])
+        .output()
+        .expect("failed to run get --dry-run with port shorthand");
+
+    assert!(output.status.success(), "expected success, got: {output:?}");
+    assert!(output.stdout.is_empty(), "expected no stdout output");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("> GET / HTTP/1.1"));
+    assert!(stderr.contains("> host: localhost:4000"));
+}
+
+#[test]
 fn dry_run_prints_request_body_to_stderr() {
     let output = Command::new(env!("CARGO_BIN_EXE_get"))
         .args([
