@@ -1,5 +1,3 @@
-mod input_parser;
-
 use bytes::Bytes;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
@@ -7,7 +5,7 @@ use clap_complete::{CompleteEnv, Shell};
 use html5ever::parse_document;
 use html5ever::tendril::TendrilSink;
 use http_body_util::{BodyExt, Full};
-use input_parser::{parse_input, ParsedHeader};
+use httpcliparser::{parse_input, ParsedHeader};
 use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, USER_AGENT};

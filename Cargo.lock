@@ -362,6 +362,7 @@ dependencies = [
  "clap_complete",
  "html5ever",
  "http-body-util",
+ "httpcliparser",
  "hyper",
  "hyper-util",
  "markup5ever_rcdom",
@@ -372,7 +373,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
- "winnow",
 ]
 
 [[package]]
@@ -463,6 +463,16 @@ name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
+
+[[package]]
+name = "httpcliparser"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b0d4bd3532be6551614a89a1dd469c31b79e743a91e96a30851feb00b2452e"
+dependencies = [
+ "serde_json",
+ "winnow",
+]
 
 [[package]]
 name = "hyper"
